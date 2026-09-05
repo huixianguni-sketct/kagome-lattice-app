@@ -224,7 +224,7 @@ let activeOperator = 'Z';
 let localOps = new Map();      // site_id -> 'X' or 'Z'
 let czPairs = [];              // array of [site_a, site_b]
 let pendingCZ = null;          // first endpoint while constructing a CZ
-let history = [];              // {state, description} entries for Undo
+let history = [];              // {{state, description}} entries for Undo
 
 function snapshot() {{
     return {{
