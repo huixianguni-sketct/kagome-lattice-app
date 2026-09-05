@@ -1,6 +1,21 @@
-# Interactive Kagome Lattice — Streamlit + Plotly
+# Interactive Kagome Qubit Lattice
 
-## Setup
+A Streamlit + Plotly interface for annotating qubits on a three-coloured Kagome lattice.
+
+## Current interaction
+
+- Qubits are coloured Red / Green / Blue.
+- Default lattice size: 8 unit cells along `a1` and 8 along `a2` (192 qubits).
+- `Z`: click a qubit to toggle a Z label.
+- `X`: click a qubit to toggle an X label.
+- `CZ`: click the first qubit and then the second; both endpoints are labelled and a CZ link is drawn.
+- `Undo` and `Clear` are available above the lattice.
+- Qubit clicks are handled client-side, so they do not rerun Streamlit.
+- Changing `nx` or `ny` rebuilds the lattice and resets annotations.
+
+This version intentionally does **not** implement Hamiltonians, state vectors, stabilizer values, anyons, or tight-binding physics.
+
+## Run locally
 
 ```bash
 python -m venv .venv
@@ -14,18 +29,13 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-macOS/Linux:
+## Project structure
 
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
+```text
+app.py              Streamlit page and nx/ny sidebar
+lattice.py          Kagome geometry and three-colouring
+ui_component.py     Plotly figure + client-side X/Z/CZ interaction
+requirements.txt
+.gitignore
+README.md
 ```
-
-The app uses Streamlit's built-in Plotly selection events. Click a site to select it; Shift-click can be used for multi-selection. The toolbar also exposes box/lasso selection.
-
-## Files
-
-- `app.py` — Streamlit UI and interaction state
-- `lattice.py` — Kagome geometry, edges, neighbors, site metadata
-- `physics.py` — adjacency matrix and example tight-binding Hamiltonian

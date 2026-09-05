@@ -6,9 +6,19 @@ from typing import Dict, List, Tuple
 import numpy as np
 
 
+# A proper three-colouring of the Kagome lattice.  The mapping is chosen so
+# that the upward-pointing basis triangle reads Green (left), Blue (right),
+# Red (top), visually close to the convention used in Fig. 2 of the paper.
+SUBLATTICE_TO_COLOR = {
+    "A": "Green",
+    "B": "Blue",
+    "C": "Red",
+}
+
+
 @dataclass(frozen=True)
 class Site:
-    """Metadata for one Kagome-lattice site."""
+    """Metadata for one qubit on the Kagome lattice."""
 
     site_id: int
     x: float
@@ -16,11 +26,12 @@ class Site:
     cell_i: int
     cell_j: int
     sublattice: str
+    color: str
 
 
 @dataclass
 class KagomeLattice:
-    """Geometry + graph representation of a finite open-boundary Kagome lattice."""
+    """Geometry and graph representation of a finite Kagome-lattice patch."""
 
     sites: List[Site]
     positions: np.ndarray  # shape (N, 2)
@@ -31,37 +42,21 @@ class KagomeLattice:
     def n_sites(self) -> int:
         return len(self.sites)
 
-    @property
-    def degrees(self) -> np.ndarray:
-        return np.array([len(self.neighbors[i]) for i in range(self.n_sites)], dtype=int)
-
 
 def generate_kagome(nx: int, ny: int) -> KagomeLattice:
     """
-    Generate a finite Kagome lattice with open boundaries.
+    Generate an open-boundary Kagome lattice.
 
-    We use a triangular Bravais lattice with primitive vectors
-
+    Primitive vectors:
         a1 = (2, 0)
         a2 = (1, sqrt(3))
 
-    and a three-site basis
-
+    Three-site basis:
         A = (0, 0)
         B = (1, 0)
-        C = (1/2, sqrt(3)/2).
+        C = (1/2, sqrt(3)/2)
 
-    With this convention, nearest-neighbor distance = 1.
-
-    Parameters
-    ----------
-    nx, ny:
-        Number of Bravais unit cells along a1 and a2.
-
-    Returns
-    -------
-    KagomeLattice
-        Site metadata, coordinates, nearest-neighbor edges, and neighbor lists.
+    The nearest-neighbour distance is 1 in these units.
     """
     if nx < 1 or ny < 1:
         raise ValueError("nx and ny must both be >= 1")
@@ -93,6 +88,7 @@ def generate_kagome(nx: int, ny: int) -> KagomeLattice:
                         cell_i=i,
                         cell_j=j,
                         sublattice=sublattice,
+                        color=SUBLATTICE_TO_COLOR[sublattice],
                     )
                 )
                 positions.append(r)
@@ -100,8 +96,7 @@ def generate_kagome(nx: int, ny: int) -> KagomeLattice:
 
     pos = np.asarray(positions, dtype=float)
 
-    # Build nearest-neighbor graph from geometry.
-    # For the chosen basis, NN distance is exactly 1 up to floating-point error.
+    # Build the nearest-neighbour graph geometrically.
     delta = pos[:, None, :] - pos[None, :, :]
     dist2 = np.einsum("ijk,ijk->ij", delta, delta)
     nearest = np.isclose(dist2, 1.0, atol=1e-9, rtol=1e-9)
