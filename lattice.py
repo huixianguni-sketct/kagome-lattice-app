@@ -6,13 +6,26 @@ from typing import Dict, List, Tuple
 import numpy as np
 
 
-# A proper three-colouring of the Kagome lattice.  The mapping is chosen so
-# that the upward-pointing basis triangle reads Green (left), Blue (right),
-# Red (top), visually close to the convention used in Fig. 2 of the paper.
-SUBLATTICE_TO_COLOR = {
-    "A": "Green",
-    "B": "Blue",
-    "C": "Red",
+# Global three-colouring of the Kagome vertices.
+#
+# IMPORTANT: colour is NOT tied to the fixed A/B/C basis label.  If it were,
+# straight Kagome chains would alternate between only two colours.  Instead we
+# colour the Kagome sites using integer coordinates (u, v) of the underlying
+# triangular grid:
+#
+#     e1 = (1, 0),  e2 = (1/2, sqrt(3)/2)
+#
+# and assign colour from (u - v) mod 3.  Therefore moving along any of the
+# three Kagome line directions cycles through all three colours.  With the
+# mapping below, a horizontal chain reads
+#
+#     Red -> Blue -> Green -> Red -> ...
+#
+# matching the visible horizontal colour sequence in Fig. 2 of the paper.
+COLOR_BY_INDEX = {
+    0: "Red",
+    1: "Blue",
+    2: "Green",
 }
 
 
@@ -43,6 +56,31 @@ class KagomeLattice:
         return len(self.sites)
 
 
+def _vertex_color(cell_i: int, cell_j: int, sublattice: str) -> str:
+    """
+    Return the global Red/Blue/Green colour of a Kagome vertex.
+
+    In fine triangular-grid coordinates (u, v):
+        A(i,j) = (2i,   2j)
+        B(i,j) = (2i+1, 2j)
+        C(i,j) = (2i,   2j+1)
+
+    The colour index c = (u - v) mod 3 changes nontrivially along every one of
+    the three straight lattice directions, so every straight chain cycles
+    through all three colours instead of alternating between only two.
+    """
+    if sublattice == "A":
+        u, v = 2 * cell_i, 2 * cell_j
+    elif sublattice == "B":
+        u, v = 2 * cell_i + 1, 2 * cell_j
+    elif sublattice == "C":
+        u, v = 2 * cell_i, 2 * cell_j + 1
+    else:
+        raise ValueError(f"Unknown Kagome sublattice: {sublattice}")
+
+    return COLOR_BY_INDEX[(u - v) % 3]
+
+
 def generate_kagome(nx: int, ny: int) -> KagomeLattice:
     """
     Generate an open-boundary Kagome lattice.
@@ -51,10 +89,14 @@ def generate_kagome(nx: int, ny: int) -> KagomeLattice:
         a1 = (2, 0)
         a2 = (1, sqrt(3))
 
-    Three-site basis:
+    Three-site geometric basis:
         A = (0, 0)
         B = (1, 0)
         C = (1/2, sqrt(3)/2)
+
+    The A/B/C labels describe geometry only.  The Red/Blue/Green qubit colour
+    is assigned globally by _vertex_color(), so the colour pattern shifts from
+    unit cell to unit cell.
 
     The nearest-neighbour distance is 1 in these units.
     """
@@ -88,7 +130,7 @@ def generate_kagome(nx: int, ny: int) -> KagomeLattice:
                         cell_i=i,
                         cell_j=j,
                         sublattice=sublattice,
-                        color=SUBLATTICE_TO_COLOR[sublattice],
+                        color=_vertex_color(i, j, sublattice),
                     )
                 )
                 positions.append(r)

@@ -60,10 +60,7 @@ def _build_figure(lattice: KagomeLattice) -> go.Figure:
             line=dict(width=1.2, color="#475569"),
         ),
         hovertemplate=(
-            "<b>Qubit %{customdata[0]}</b><br>"
-            "Color: %{customdata[4]}<br>"
-            "Unit cell: (%{customdata[1]}, %{customdata[2]})<br>"
-            "Sublattice: %{customdata[3]}"
+            "<b>Qubit %{customdata[0]}</b>"
             "<extra></extra>"
         ),
         showlegend=False,
@@ -227,7 +224,7 @@ let activeOperator = 'Z';
 let localOps = new Map();      // site_id -> 'X' or 'Z'
 let czPairs = [];              // array of [site_a, site_b]
 let pendingCZ = null;          // first endpoint while constructing a CZ
-let history = [];              // snapshots for Undo
+let history = [];              // {state, description} entries for Undo
 
 function snapshot() {{
     return {{
@@ -244,8 +241,11 @@ function restore(state) {{
     renderOperations();
 }}
 
-function pushHistory() {{
-    history.push(snapshot());
+function pushHistory(description, stateOverride = null) {{
+    history.push({{
+        state: stateOverride || snapshot(),
+        description: description,
+    }});
     if (history.length > 100) history.shift();
 }}
 
@@ -278,15 +278,20 @@ function pairIndex(a, b) {{
 }}
 
 function applyLocalOperator(siteId) {{
-    pushHistory();
     const current = localOps.get(siteId);
 
     // Clicking the same operator again removes it; choosing the other Pauli
     // replaces the previous local label on that qubit.
     if (current === activeOperator) {{
+        pushHistory('removing ' + activeOperator + ' from qubit ' + siteId);
         localOps.delete(siteId);
         setStatus(activeOperator + ' removed from qubit ' + siteId + '.');
+    }} else if (current) {{
+        pushHistory('replacing ' + current + ' with ' + activeOperator + ' on qubit ' + siteId);
+        localOps.set(siteId, activeOperator);
+        setStatus(activeOperator + ' applied to qubit ' + siteId + ', replacing ' + current + '.');
     }} else {{
+        pushHistory('applying ' + activeOperator + ' to qubit ' + siteId);
         localOps.set(siteId, activeOperator);
         setStatus(activeOperator + ' applied to qubit ' + siteId + '.');
     }}
@@ -295,7 +300,6 @@ function applyLocalOperator(siteId) {{
 
 function applyCZClick(siteId) {{
     if (pendingCZ === null) {{
-        pushHistory();
         pendingCZ = siteId;
         setStatus('CZ: first qubit ' + siteId + ' selected. Choose the second qubit.');
         renderOperations();
@@ -311,10 +315,18 @@ function applyCZClick(siteId) {{
 
     const first = pendingCZ;
     const existingIndex = pairIndex(first, siteId);
+
+    // Save the state as it was before the first CZ endpoint was selected.
+    // This makes one press of Undo reverse the complete two-qubit CZ action.
+    const beforeCZ = snapshot();
+    beforeCZ.pendingCZ = null;
+
     if (existingIndex >= 0) {{
+        pushHistory('removing CZ between qubits ' + first + ' and ' + siteId, beforeCZ);
         czPairs.splice(existingIndex, 1);
         setStatus('CZ between qubits ' + first + ' and ' + siteId + ' removed.');
     }} else {{
+        pushHistory('applying CZ to qubits ' + first + ' and ' + siteId, beforeCZ);
         czPairs.push(normalizedPair(first, siteId));
         setStatus('CZ created between qubits ' + first + ' and ' + siteId + '.');
     }}
@@ -375,13 +387,24 @@ function renderOperations() {{
 }}
 
 function undoLast() {{
+    // If the user has only selected the first endpoint of a CZ gate, Undo
+    // simply cancels that pending selection.
+    if (pendingCZ !== null) {{
+        const first = pendingCZ;
+        pendingCZ = null;
+        renderOperations();
+        setStatus('Undone selecting qubit ' + first + ' as the first CZ qubit.');
+        return;
+    }}
+
     if (history.length === 0) {{
         setStatus('Nothing to undo.');
         return;
     }}
-    const previous = history.pop();
-    restore(previous);
-    setStatus('Last operation undone.');
+
+    const entry = history.pop();
+    restore(entry.state);
+    setStatus('Undone ' + entry.description + '.');
 }}
 
 function clearAll() {{
@@ -389,7 +412,7 @@ function clearAll() {{
         setStatus('Nothing to clear.');
         return;
     }}
-    pushHistory();
+    pushHistory('clearing all operator annotations');
     localOps.clear();
     czPairs = [];
     pendingCZ = null;

@@ -4,7 +4,7 @@ A Streamlit + Plotly interface for annotating qubits on a three-coloured Kagome 
 
 ## Current interaction
 
-- Qubits are coloured Red / Green / Blue.
+- Qubits use a global three-colouring. Along every straight Kagome line, the colours cycle through Red / Blue / Green (or the reverse/cyclic order, depending on direction), as in Fig. 2 of the paper.
 - Default lattice size: 8 unit cells along `a1` and 8 along `a2` (192 qubits).
 - `Z`: click a qubit to toggle a Z label.
 - `X`: click a qubit to toggle an X label.
