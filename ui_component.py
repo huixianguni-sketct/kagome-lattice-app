@@ -201,6 +201,7 @@ def build_interactive_lattice_html(lattice: KagomeLattice) -> str:
         <button id="btn-Z" class="operator active" onclick="setOperator('Z')">Z</button>
         <button id="btn-X" class="operator" onclick="setOperator('X')">X</button>
         <button id="btn-CZ" class="operator" onclick="setOperator('CZ')">CZ</button>
+        <button id="btn-Erase" class="operator" onclick="setOperator('Erase')">Erase</button>
         <button class="utility" onclick="undoLast()">Undo</button>
         <button class="utility" onclick="clearAll()">Clear</button>
         <span id="status">Z mode: click a qubit to toggle a Z label.</span>
@@ -258,6 +259,8 @@ function setOperator(op) {{
 
     if (op === 'CZ') {{
         setStatus('CZ mode: click the first qubit, then click the second qubit.');
+    }} else if (op === 'Erase') {{
+        setStatus('Erase mode: click a qubit to remove all operations acting on it.');
     }} else {{
         setStatus(op + ' mode: click a qubit to toggle a ' + op + ' label.');
     }}
@@ -296,6 +299,39 @@ function applyLocalOperator(siteId) {{
         setStatus(activeOperator + ' applied to qubit ' + siteId + '.');
     }}
     renderOperations();
+}}
+
+function applyErase(siteId) {{
+    const local = localOps.get(siteId) || null;
+    const connectedPairs = czPairs.filter(([a, b]) => a === siteId || b === siteId);
+
+    if (!local && connectedPairs.length === 0) {{
+        setStatus('Qubit ' + siteId + ' has no operations to erase.');
+        return;
+    }}
+
+    // Save the complete pre-erase state so one Undo restores every removed
+    // local operator and every CZ gate touching this qubit.
+    const beforeErase = snapshot();
+
+    const removedDescriptions = [];
+    if (local) {{
+        removedDescriptions.push(local + ' on qubit ' + siteId);
+        localOps.delete(siteId);
+    }}
+
+    if (connectedPairs.length > 0) {{
+        connectedPairs.forEach(([a, b]) => {{
+            removedDescriptions.push('CZ between qubits ' + a + ' and ' + b);
+        }});
+        czPairs = czPairs.filter(([a, b]) => a !== siteId && b !== siteId);
+    }}
+
+    const description = 'erasing ' + removedDescriptions.join(' and ');
+    pushHistory(description, beforeErase);
+
+    renderOperations();
+    setStatus('Erased ' + removedDescriptions.join(' and ') + '.');
 }}
 
 function applyCZClick(siteId) {{
@@ -429,6 +465,8 @@ Plotly.newPlot(plotDiv, fig.data, fig.layout, config).then(() => {{
         const siteId = Number(point.customdata[0]);
         if (activeOperator === 'CZ') {{
             applyCZClick(siteId);
+        }} else if (activeOperator === 'Erase') {{
+            applyErase(siteId);
         }} else {{
             applyLocalOperator(siteId);
         }}

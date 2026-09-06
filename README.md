@@ -39,3 +39,7 @@ requirements.txt
 .gitignore
 README.md
 ```
+
+## Erase tool
+
+Choose **Erase** in the operator toolbar, then click a qubit. The app removes any local X/Z label on that qubit and every CZ gate connected to it. The opposite endpoint of each removed CZ loses only that CZ annotation; any X/Z operator on the other qubit is preserved. One press of **Undo** restores the full pre-erase state.
