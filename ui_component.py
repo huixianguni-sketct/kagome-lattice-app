@@ -2,479 +2,734 @@ from __future__ import annotations
 
 import json
 
-import plotly.graph_objects as go
 
-from lattice import KagomeLattice
+def _coerce_hex_color(value: str) -> str:
+    """
+    Accept either a hex string or a color name and return a hex color.
+    """
+    color_map = {
+        "red": "#ef4444",
+        "green": "#22c55e",
+        "blue": "#3b82f6",
+        "Red": "#ef4444",
+        "Green": "#22c55e",
+        "Blue": "#3b82f6",
+    }
+
+    if not isinstance(value, str):
+        return "#9ca3af"
+
+    if value.startswith("#") or value.startswith("rgb"):
+        return value
+
+    return color_map.get(value, "#9ca3af")
 
 
-# Pastel shades chosen to resemble the paper while keeping labels readable.
-COLOR_HEX = {
-    "Red": "#F3A2A8",
-    "Green": "#9FD8BC",
-    "Blue": "#A8BCEB",
-}
+def _site_color(site) -> str:
+    """
+    Try a few possible attribute names for color.
+    """
+    for attr in ("color_hex", "hex_color", "plot_color", "display_color", "color", "color_name"):
+        if hasattr(site, attr):
+            return _coerce_hex_color(getattr(site, attr))
+    return "#9ca3af"
 
 
-def _build_figure(lattice: KagomeLattice) -> go.Figure:
-    edge_x = []
-    edge_y = []
-    for i, j in lattice.edges:
-        x0, y0 = lattice.positions[i]
-        x1, y1 = lattice.positions[j]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
+def build_interactive_lattice_html(lattice) -> str:
+    """
+    Build the interactive Plotly/HTML component used inside Streamlit.
 
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines",
-        line=dict(width=1.2, color="rgba(70, 70, 70, 0.55)"),
-        hoverinfo="skip",
-        showlegend=False,
-        name="Kagome bonds",
-    )
+    Expected lattice interface:
+      - lattice.sites : iterable of site objects with attributes
+            site_id, x, y, and a color-ish attribute
+      - lattice.edges : iterable of (i, j) nearest-neighbour pairs
+    """
 
-    node_colors = [COLOR_HEX[site.color] for site in lattice.sites]
-    customdata = [
-        [
-            site.site_id,
-            site.cell_i,
-            site.cell_j,
-            site.sublattice,
-            site.color,
-        ]
-        for site in lattice.sites
+    sites = sorted(lattice.sites, key=lambda s: int(s.site_id))
+    edge_pairs = [(int(i), int(j)) for i, j in lattice.edges]
+
+    site_data = [
+        {
+            "id": int(site.site_id),
+            "x": float(site.x),
+            "y": float(site.y),
+            "color": _site_color(site),
+        }
+        for site in sites
     ]
 
-    node_trace = go.Scatter(
-        x=[site.x for site in lattice.sites],
-        y=[site.y for site in lattice.sites],
-        mode="markers+text",
-        text=["" for _ in lattice.sites],
-        textposition="middle center",
-        textfont=dict(size=11, color="#111827", family="Arial Black, Arial, sans-serif"),
-        customdata=customdata,
-        marker=dict(
-            size=17,
-            color=node_colors,
-            line=dict(width=1.2, color="#475569"),
-        ),
-        hovertemplate=(
-            "<b>Qubit %{customdata[0]}</b>"
-            "<extra></extra>"
-        ),
-        showlegend=False,
-        name="Qubits",
-    )
+    # Base lattice edges for the permanent grey Kagome bonds
+    base_edge_x = []
+    base_edge_y = []
+    for i, j in edge_pairs:
+        si = sites[i]
+        sj = sites[j]
+        base_edge_x.extend([float(si.x), float(sj.x), None])
+        base_edge_y.extend([float(si.y), float(sj.y), None])
 
-    # This trace is filled dynamically in JavaScript after a CZ pair is made.
-    cz_trace = go.Scatter(
-        x=[],
-        y=[],
-        mode="lines",
-        line=dict(width=4, color="#6D28D9"),
-        hoverinfo="skip",
-        showlegend=False,
-        name="CZ pairs",
-    )
-
-    # Midpoint labels make it visually obvious which two qubits form a CZ gate.
-    cz_label_trace = go.Scatter(
-        x=[],
-        y=[],
-        mode="text",
-        text=[],
-        textfont=dict(size=11, color="#5B21B6", family="Arial Black, Arial, sans-serif"),
-        hoverinfo="skip",
-        showlegend=False,
-        name="CZ labels",
-    )
-
-    fig = go.Figure(data=[edge_trace, node_trace, cz_trace, cz_label_trace])
-    fig.update_layout(
-        height=720,
-        margin=dict(l=5, r=5, t=10, b=5),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        dragmode="pan",
-        hovermode="closest",
-        uirevision="kagome-operator-interface",
-        xaxis=dict(
-            visible=False,
-            showgrid=False,
-            zeroline=False,
-            fixedrange=False,
-        ),
-        yaxis=dict(
-            visible=False,
-            showgrid=False,
-            zeroline=False,
-            scaleanchor="x",
-            scaleratio=1,
-            fixedrange=False,
-        ),
-    )
-    return fig
-
-
-def build_interactive_lattice_html(lattice: KagomeLattice) -> str:
-    """
-    Build a client-side Plotly interface.
-
-    Vertex clicks are handled entirely in JavaScript, so X/Z/CZ annotations do
-    not trigger a Streamlit rerun.  Streamlit only reruns when nx or ny changes.
-    """
-    fig = _build_figure(lattice)
-    figure_json = fig.to_json()
-
-    positions = {
-        str(site.site_id): {"x": site.x, "y": site.y}
-        for site in lattice.sites
-    }
-    positions_json = json.dumps(positions)
-
-    # Plotly.js is loaded in the iframe.  All operation state is intentionally
-    # client-side for the current UI-only phase of the project.
-    return f"""
+    template = r"""
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8" />
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<style>
-    * {{ box-sizing: border-box; }}
-    body {{
-        margin: 0;
-        background: white;
-        color: #0f172a;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-                     "Segoe UI", sans-serif;
-    }}
-    .toolbar {{
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px;
-        padding: 4px 2px 10px 2px;
-    }}
-    .toolbar-label {{
-        font-size: 0.95rem;
-        font-weight: 650;
-        margin-right: 4px;
-    }}
-    button {{
-        border: 1px solid #cbd5e1;
-        background: #ffffff;
-        color: #0f172a;
-        border-radius: 8px;
-        padding: 7px 14px;
-        cursor: pointer;
-        font-weight: 650;
-        font-size: 0.92rem;
-    }}
-    button:hover {{ background: #f8fafc; }}
-    button.operator.active {{
-        border-color: #111827;
-        background: #111827;
-        color: white;
-    }}
-    button.utility {{
-        margin-left: 4px;
-        font-weight: 550;
-        color: #475569;
-    }}
-    #status {{
-        margin-left: 6px;
-        font-size: 0.88rem;
-        color: #64748b;
-        min-height: 1.2em;
-    }}
-    #plot {{
-        width: 100%;
-        height: 720px;
-    }}
-</style>
+  <meta charset="utf-8"/>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .wrapper {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 8px 0 8px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .toolbar-label {
+      font-weight: 700;
+      font-size: 14px;
+      margin-right: 4px;
+    }
+
+    .btn {
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #111827;
+      padding: 7px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .btn:hover {
+      background: #eef2ff;
+    }
+
+    .btn.active {
+      background: #dbeafe;
+      border-color: #60a5fa;
+      color: #1d4ed8;
+    }
+
+    .btn.action {
+      background: #f9fafb;
+    }
+
+    .status {
+      margin: 4px 0 8px 0;
+      min-height: 20px;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    #plot {
+      width: 100%;
+      height: 760px;
+    }
+  </style>
 </head>
 <body>
+  <div class="wrapper">
     <div class="toolbar">
-        <span class="toolbar-label">Operator</span>
-        <button id="btn-Z" class="operator active" onclick="setOperator('Z')">Z</button>
-        <button id="btn-X" class="operator" onclick="setOperator('X')">X</button>
-        <button id="btn-CZ" class="operator" onclick="setOperator('CZ')">CZ</button>
-        <button id="btn-Erase" class="operator" onclick="setOperator('Erase')">Erase</button>
-        <button class="utility" onclick="undoLast()">Undo</button>
-        <button class="utility" onclick="clearAll()">Clear</button>
-        <span id="status">Z mode: click a qubit to toggle a Z label.</span>
+      <span class="toolbar-label">Operator</span>
+
+      <button class="btn mode-btn active" data-mode="Z">Z</button>
+      <button class="btn mode-btn" data-mode="X">X</button>
+      <button class="btn mode-btn" data-mode="CZ">CZ</button>
+      <button class="btn mode-btn" data-mode="ERASE">Erase</button>
+
+      <button class="btn action" id="save-btn">Save PNG</button>
+      <button class="btn action" id="undo-btn">Undo</button>
+      <button class="btn action" id="clear-btn">Clear</button>
     </div>
+
+    <div class="status" id="status">Mode: Z</div>
     <div id="plot"></div>
+  </div>
 
-<script>
-const fig = {figure_json};
-const positions = {positions_json};
-const plotDiv = document.getElementById('plot');
+  <script>
+    const siteData = __SITE_DATA__;
+    const edgePairs = __EDGE_PAIRS__;
+    const baseEdgeX = __BASE_EDGE_X__;
+    const baseEdgeY = __BASE_EDGE_Y__;
 
-const config = {{
-    responsive: true,
-    displaylogo: false,
-    scrollZoom: true,
-    modeBarButtonsToRemove: ['select2d', 'lasso2d'],
-}};
+    const plotDiv = document.getElementById("plot");
+    const statusDiv = document.getElementById("status");
+    const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+    const saveBtn = document.getElementById("save-btn");
+    const undoBtn = document.getElementById("undo-btn");
+    const clearBtn = document.getElementById("clear-btn");
 
-// UI state.  This lives in the browser, so a qubit click does not rerun Streamlit.
-let activeOperator = 'Z';
-let localOps = new Map();      // site_id -> 'X' or 'Z'
-let czPairs = [];              // array of [site_a, site_b]
-let pendingCZ = null;          // first endpoint while constructing a CZ
-let history = [];              // {{state, description}} entries for Undo
+    const siteById = new Map(siteData.map(s => [s.id, s]));
 
-function snapshot() {{
-    return {{
+    const nearestNeighborKeys = new Set(
+      edgePairs.map(([a, b]) => pairKey(a, b))
+    );
+
+    let currentMode = "Z";
+    let localOps = new Map();   // site_id -> "X" or "Z"
+    let czPairs = [];           // array of [a, b]
+    let pendingCZ = null;       // first endpoint for CZ selection
+    let history = [];           // array of { state, description }
+
+    function setStatus(text) {
+      statusDiv.textContent = text;
+    }
+
+    function pairKey(a, b) {
+      return a < b ? `${a}-${b}` : `${b}-${a}`;
+    }
+
+    function hasCZPair(a, b) {
+      const key = pairKey(a, b);
+      return czPairs.some(([u, v]) => pairKey(u, v) === key);
+    }
+
+    function isNearestNeighbor(a, b) {
+      return nearestNeighborKeys.has(pairKey(a, b));
+    }
+
+    function snapshot() {
+      return {
         localOps: Array.from(localOps.entries()),
-        czPairs: czPairs.map(pair => [...pair]),
+        czPairs: czPairs.map(([a, b]) => [a, b]),
         pendingCZ: pendingCZ,
-    }};
-}}
+        currentMode: currentMode,
+      };
+    }
 
-function restore(state) {{
-    localOps = new Map(state.localOps);
-    czPairs = state.czPairs.map(pair => [...pair]);
-    pendingCZ = state.pendingCZ;
-    renderOperations();
-}}
+    function restoreState(state) {
+      localOps = new Map(state.localOps);
+      czPairs = state.czPairs.map(([a, b]) => [a, b]);
+      pendingCZ = state.pendingCZ;
+      currentMode = state.currentMode;
 
-function pushHistory(description, stateOverride = null) {{
-    history.push({{
-        state: stateOverride || snapshot(),
+      updateActiveModeButtons();
+      render();
+    }
+
+    function pushHistory(description) {
+      history.push({
+        state: snapshot(),
         description: description,
-    }});
-    if (history.length > 100) history.shift();
-}}
+      });
+    }
 
-function setOperator(op) {{
-    activeOperator = op;
-    pendingCZ = null;
+    function updateActiveModeButtons() {
+      for (const btn of modeButtons) {
+        const mode = btn.dataset.mode;
+        if (mode === currentMode) {
+          btn.classList.add("active");
+        } else {
+          btn.classList.remove("active");
+        }
+      }
+    }
 
-    document.querySelectorAll('button.operator').forEach(btn => btn.classList.remove('active'));
-    document.getElementById('btn-' + op).classList.add('active');
+    function quadraticBezierPoints(x0, y0, x1, y1, cx, cy, n = 32) {
+      const xs = [];
+      const ys = [];
 
-    if (op === 'CZ') {{
-        setStatus('CZ mode: click the first qubit, then click the second qubit.');
-    }} else if (op === 'Erase') {{
-        setStatus('Erase mode: click a qubit to remove all operations acting on it.');
-    }} else {{
-        setStatus(op + ' mode: click a qubit to toggle a ' + op + ' label.');
-    }}
-    renderOperations();
-}}
+      for (let k = 0; k < n; k++) {
+        const t = k / (n - 1);
+        const omt = 1 - t;
 
-function setStatus(message) {{
-    document.getElementById('status').textContent = message;
-}}
+        const x =
+          omt * omt * x0 +
+          2 * omt * t * cx +
+          t * t * x1;
 
-function normalizedPair(a, b) {{
-    return a < b ? [a, b] : [b, a];
-}}
+        const y =
+          omt * omt * y0 +
+          2 * omt * t * cy +
+          t * t * y1;
 
-function pairIndex(a, b) {{
-    const [u, v] = normalizedPair(a, b);
-    return czPairs.findIndex(pair => pair[0] === u && pair[1] === v);
-}}
+        xs.push(x);
+        ys.push(y);
+      }
 
-function applyLocalOperator(siteId) {{
-    const current = localOps.get(siteId);
+      return { xs, ys };
+    }
 
-    // Clicking the same operator again removes it; choosing the other Pauli
-    // replaces the previous local label on that qubit.
-    if (current === activeOperator) {{
-        pushHistory('removing ' + activeOperator + ' from qubit ' + siteId);
+    function buildCZGeometry() {
+      const lineX = [];
+      const lineY = [];
+      const labelX = [];
+      const labelY = [];
+      const labelText = [];
+
+      for (const [a, b] of czPairs) {
+        const sa = siteById.get(a);
+        const sb = siteById.get(b);
+
+        if (!sa || !sb) continue;
+
+        const x0 = sa.x;
+        const y0 = sa.y;
+        const x1 = sb.x;
+        const y1 = sb.y;
+
+        if (isNearestNeighbor(a, b)) {
+          lineX.push(x0, x1, null);
+          lineY.push(y0, y1, null);
+
+          const midX = 0.5 * (x0 + x1);
+          const midY = 0.5 * (y0 + y1);
+
+          labelX.push(midX);
+          labelY.push(midY + 0.18);
+          labelText.push("CZ");
+        } else {
+          const midX = 0.5 * (x0 + x1);
+          const midY = 0.5 * (y0 + y1);
+          const dist = Math.hypot(x1 - x0, y1 - y0);
+
+          // "curve up" in +y direction
+          const lift = Math.max(0.75, 0.20 * dist);
+          const controlX = midX;
+          const controlY = midY + lift;
+
+          const curve = quadraticBezierPoints(
+            x0, y0,
+            x1, y1,
+            controlX, controlY,
+            36
+          );
+
+          lineX.push(...curve.xs, null);
+          lineY.push(...curve.ys, null);
+
+          // place label at the top of the arc
+          let apexIndex = 0;
+          for (let i = 1; i < curve.ys.length; i++) {
+            if (curve.ys[i] > curve.ys[apexIndex]) {
+              apexIndex = i;
+            }
+          }
+
+          labelX.push(curve.xs[apexIndex]);
+          labelY.push(curve.ys[apexIndex] + 0.18);
+          labelText.push("CZ");
+        }
+      }
+
+      return { lineX, lineY, labelX, labelY, labelText };
+    }
+
+    function buildOpLabels() {
+      const xs = [];
+      const ys = [];
+      const texts = [];
+      const customdata = [];
+
+      for (const [siteId, op] of localOps.entries()) {
+        const s = siteById.get(siteId);
+        if (!s) continue;
+
+        xs.push(s.x);
+        ys.push(s.y);
+        texts.push(op);
+        customdata.push(siteId);
+      }
+
+      return { xs, ys, texts, customdata };
+    }
+
+    function render() {
+      const xs = siteData.map(s => s.x);
+      const ys = siteData.map(s => s.y);
+
+      const minX = Math.min(...xs) - 1.2;
+      const maxX = Math.max(...xs) + 1.2;
+      const minY = Math.min(...ys) - 1.2;
+      const maxY = Math.max(...ys) + 1.2;
+
+      const cz = buildCZGeometry();
+      const opLabels = buildOpLabels();
+
+      const edgeTrace = {
+        type: "scatter",
+        mode: "lines",
+        x: baseEdgeX,
+        y: baseEdgeY,
+        line: {
+          color: "rgba(100, 116, 139, 0.65)",
+          width: 1.6,
+        },
+        hoverinfo: "skip",
+        showlegend: false,
+      };
+
+      const czLineTrace = {
+        type: "scatter",
+        mode: "lines",
+        x: cz.lineX,
+        y: cz.lineY,
+        line: {
+          color: "#7c3aed",
+          width: 3.0,
+        },
+        hoverinfo: "skip",
+        showlegend: false,
+      };
+
+      const czLabelTrace = {
+        type: "scatter",
+        mode: "text",
+        x: cz.labelX,
+        y: cz.labelY,
+        text: cz.labelText,
+        textfont: {
+          size: 14,
+          color: "#6d28d9",
+          family: "Arial, sans-serif",
+        },
+        hoverinfo: "skip",
+        showlegend: false,
+      };
+
+      const nodeTrace = {
+        type: "scatter",
+        mode: "markers",
+        x: siteData.map(s => s.x),
+        y: siteData.map(s => s.y),
+        customdata: siteData.map(s => s.id),
+        marker: {
+          size: 14,
+          color: siteData.map(s => s.color),
+          line: {
+            width: 1.1,
+            color: "#111827",
+          },
+        },
+        hovertemplate: "<b>Qubit %{customdata}</b><extra></extra>",
+        showlegend: false,
+      };
+
+      const opLabelTrace = {
+        type: "scatter",
+        mode: "text",
+        x: opLabels.xs,
+        y: opLabels.ys,
+        text: opLabels.texts,
+        customdata: opLabels.customdata,
+        textfont: {
+          size: 14,
+          color: "#111827",
+          family: "Arial, sans-serif",
+        },
+        hoverinfo: "skip",
+        showlegend: false,
+      };
+
+      const pendingTrace = pendingCZ === null ? null : {
+        type: "scatter",
+        mode: "markers",
+        x: [siteById.get(pendingCZ).x],
+        y: [siteById.get(pendingCZ).y],
+        customdata: [pendingCZ],
+        marker: {
+          size: 24,
+          color: "rgba(0,0,0,0)",
+          line: {
+            width: 3,
+            color: "#7c3aed",
+          },
+        },
+        hovertemplate: "<b>Qubit %{customdata}</b><extra></extra>",
+        showlegend: false,
+      };
+
+      const traces = [
+        edgeTrace,
+        czLineTrace,
+        czLabelTrace,
+        nodeTrace,
+        opLabelTrace,
+      ];
+
+      if (pendingTrace !== null) {
+        traces.push(pendingTrace);
+      }
+
+      const layout = {
+        paper_bgcolor: "white",
+        plot_bgcolor: "white",
+        margin: { l: 10, r: 10, t: 10, b: 10 },
+        xaxis: {
+          visible: false,
+          range: [minX, maxX],
+          scaleanchor: "y",
+          scaleratio: 1,
+          fixedrange: false,
+        },
+        yaxis: {
+          visible: false,
+          range: [minY, maxY],
+          fixedrange: false,
+        },
+      };
+
+      const config = {
+        responsive: true,
+        displayModeBar: false,
+        scrollZoom: true,
+      };
+
+      Plotly.react(plotDiv, traces, layout, config);
+    }
+
+    function describeConnectedCZs(siteId, pairs) {
+      if (pairs.length === 0) return "";
+
+      const parts = pairs.map(([a, b]) => {
+        const u = Math.min(a, b);
+        const v = Math.max(a, b);
+        return `CZ between qubits ${u} and ${v}`;
+      });
+
+      if (parts.length === 1) {
+        return parts[0];
+      }
+
+      return parts.join(", ");
+    }
+
+    function handleLocalOp(siteId, newOp) {
+      const oldOp = localOps.get(siteId);
+
+      if (oldOp === newOp) {
+        pushHistory(`removing ${newOp} from qubit ${siteId}`);
         localOps.delete(siteId);
-        setStatus(activeOperator + ' removed from qubit ' + siteId + '.');
-    }} else if (current) {{
-        pushHistory('replacing ' + current + ' with ' + activeOperator + ' on qubit ' + siteId);
-        localOps.set(siteId, activeOperator);
-        setStatus(activeOperator + ' applied to qubit ' + siteId + ', replacing ' + current + '.');
-    }} else {{
-        pushHistory('applying ' + activeOperator + ' to qubit ' + siteId);
-        localOps.set(siteId, activeOperator);
-        setStatus(activeOperator + ' applied to qubit ' + siteId + '.');
-    }}
-    renderOperations();
-}}
-
-function applyErase(siteId) {{
-    const local = localOps.get(siteId) || null;
-    const connectedPairs = czPairs.filter(([a, b]) => a === siteId || b === siteId);
-
-    if (!local && connectedPairs.length === 0) {{
-        setStatus('Qubit ' + siteId + ' has no operations to erase.');
+        render();
+        setStatus(`Removed ${newOp} from qubit ${siteId}.`);
         return;
-    }}
+      }
 
-    // Save the complete pre-erase state so one Undo restores every removed
-    // local operator and every CZ gate touching this qubit.
-    const beforeErase = snapshot();
+      if (oldOp && oldOp !== newOp) {
+        pushHistory(`replacing ${oldOp} with ${newOp} on qubit ${siteId}`);
+        localOps.set(siteId, newOp);
+        render();
+        setStatus(`Replaced ${oldOp} with ${newOp} on qubit ${siteId}.`);
+        return;
+      }
 
-    const removedDescriptions = [];
-    if (local) {{
-        removedDescriptions.push(local + ' on qubit ' + siteId);
-        localOps.delete(siteId);
-    }}
+      pushHistory(`applying ${newOp} to qubit ${siteId}`);
+      localOps.set(siteId, newOp);
+      render();
+      setStatus(`Applied ${newOp} to qubit ${siteId}.`);
+    }
 
-    if (connectedPairs.length > 0) {{
-        connectedPairs.forEach(([a, b]) => {{
-            removedDescriptions.push('CZ between qubits ' + a + ' and ' + b);
-        }});
-        czPairs = czPairs.filter(([a, b]) => a !== siteId && b !== siteId);
-    }}
-
-    const description = 'erasing ' + removedDescriptions.join(' and ');
-    pushHistory(description, beforeErase);
-
-    renderOperations();
-    setStatus('Erased ' + removedDescriptions.join(' and ') + '.');
-}}
-
-function applyCZClick(siteId) {{
-    if (pendingCZ === null) {{
+    function handleCZ(siteId) {
+      if (pendingCZ === null) {
+        pushHistory(`selecting qubit ${siteId} as the first CZ qubit`);
         pendingCZ = siteId;
-        setStatus('CZ: first qubit ' + siteId + ' selected. Choose the second qubit.');
-        renderOperations();
+        render();
+        setStatus(`CZ: first qubit ${siteId} selected.`);
         return;
-    }}
+      }
 
-    if (pendingCZ === siteId) {{
+      if (pendingCZ === siteId) {
+        pushHistory(`cancelling pending CZ selection on qubit ${siteId}`);
         pendingCZ = null;
-        setStatus('CZ selection cancelled. Choose the first qubit again.');
-        renderOperations();
+        render();
+        setStatus(`Cancelled pending CZ selection on qubit ${siteId}.`);
         return;
-    }}
+      }
 
-    const first = pendingCZ;
-    const existingIndex = pairIndex(first, siteId);
+      const a = Math.min(pendingCZ, siteId);
+      const b = Math.max(pendingCZ, siteId);
 
-    // Save the state as it was before the first CZ endpoint was selected.
-    // This makes one press of Undo reverse the complete two-qubit CZ action.
-    const beforeCZ = snapshot();
-    beforeCZ.pendingCZ = null;
-
-    if (existingIndex >= 0) {{
-        pushHistory('removing CZ between qubits ' + first + ' and ' + siteId, beforeCZ);
-        czPairs.splice(existingIndex, 1);
-        setStatus('CZ between qubits ' + first + ' and ' + siteId + ' removed.');
-    }} else {{
-        pushHistory('applying CZ to qubits ' + first + ' and ' + siteId, beforeCZ);
-        czPairs.push(normalizedPair(first, siteId));
-        setStatus('CZ created between qubits ' + first + ' and ' + siteId + '.');
-    }}
-    pendingCZ = null;
-    renderOperations();
-}}
-
-function renderOperations() {{
-    const labels = [];
-    const nSites = fig.data[1].x.length;
-
-    // Count how many completed CZ gates touch each site.
-    const czCount = new Map();
-    czPairs.forEach(([a, b]) => {{
-        czCount.set(a, (czCount.get(a) || 0) + 1);
-        czCount.set(b, (czCount.get(b) || 0) + 1);
-    }});
-
-    for (let siteId = 0; siteId < nSites; siteId++) {{
-        const local = localOps.get(siteId) || '';
-        const hasCZ = (czCount.get(siteId) || 0) > 0;
-        const isPending = pendingCZ === siteId;
-
-        if (local && hasCZ) {{
-            labels.push('<b>' + local + '</b><br><span style="font-size:8px">CZ</span>');
-        }} else if (local) {{
-            labels.push('<b>' + local + '</b>');
-        }} else if (hasCZ) {{
-            labels.push('<b>CZ</b>');
-        }} else if (isPending) {{
-            labels.push('<b>CZ?</b>');
-        }} else {{
-            labels.push('');
-        }}
-    }}
-
-    Plotly.restyle(plotDiv, {{text: [labels]}}, [1]);
-
-    // Rebuild the CZ connection trace and its midpoint labels.
-    const lineX = [];
-    const lineY = [];
-    const labelX = [];
-    const labelY = [];
-    const labelText = [];
-
-    czPairs.forEach(([a, b]) => {{
-        const pa = positions[String(a)];
-        const pb = positions[String(b)];
-        lineX.push(pa.x, pb.x, null);
-        lineY.push(pa.y, pb.y, null);
-        labelX.push((pa.x + pb.x) / 2.0);
-        labelY.push((pa.y + pb.y) / 2.0);
-        labelText.push('CZ');
-    }});
-
-    Plotly.restyle(plotDiv, {{x: [lineX], y: [lineY]}}, [2]);
-    Plotly.restyle(plotDiv, {{x: [labelX], y: [labelY], text: [labelText]}}, [3]);
-}}
-
-function undoLast() {{
-    // If the user has only selected the first endpoint of a CZ gate, Undo
-    // simply cancels that pending selection.
-    if (pendingCZ !== null) {{
-        const first = pendingCZ;
+      if (hasCZPair(a, b)) {
+        pushHistory(`removing CZ between qubits ${a} and ${b}`);
+        czPairs = czPairs.filter(([u, v]) => pairKey(u, v) !== pairKey(a, b));
         pendingCZ = null;
-        renderOperations();
-        setStatus('Undone selecting qubit ' + first + ' as the first CZ qubit.');
+        render();
+        setStatus(`Removed CZ between qubits ${a} and ${b}.`);
         return;
-    }}
+      }
 
-    if (history.length === 0) {{
-        setStatus('Nothing to undo.');
+      pushHistory(`applying CZ to qubits ${a} and ${b}`);
+      czPairs.push([a, b]);
+      pendingCZ = null;
+      render();
+      setStatus(`Applied CZ to qubits ${a} and ${b}.`);
+    }
+
+    function handleErase(siteId) {
+      const existingOp = localOps.get(siteId) || null;
+      const connectedPairs = czPairs.filter(([a, b]) => a === siteId || b === siteId);
+      const wasPending = pendingCZ === siteId;
+
+      if (!existingOp && connectedPairs.length === 0 && !wasPending) {
+        setStatus(`Qubit ${siteId} has no operations to erase.`);
         return;
-    }}
+      }
 
-    const entry = history.pop();
-    restore(entry.state);
-    setStatus('Undone ' + entry.description + '.');
-}}
+      const descriptionParts = [];
 
-function clearAll() {{
-    if (localOps.size === 0 && czPairs.length === 0 && pendingCZ === null) {{
-        setStatus('Nothing to clear.');
+      if (existingOp) {
+        descriptionParts.push(`${existingOp} on qubit ${siteId}`);
+      }
+
+      if (connectedPairs.length > 0) {
+        descriptionParts.push(describeConnectedCZs(siteId, connectedPairs));
+      }
+
+      if (wasPending) {
+        descriptionParts.push(`pending CZ selection on qubit ${siteId}`);
+      }
+
+      pushHistory(`erasing ${descriptionParts.join(" and ")}`);
+
+      if (existingOp) {
+        localOps.delete(siteId);
+      }
+
+      if (connectedPairs.length > 0) {
+        const keysToRemove = new Set(connectedPairs.map(([a, b]) => pairKey(a, b)));
+        czPairs = czPairs.filter(([a, b]) => !keysToRemove.has(pairKey(a, b)));
+      }
+
+      if (wasPending) {
+        pendingCZ = null;
+      }
+
+      render();
+      setStatus(`Erased ${descriptionParts.join(" and ")}.`);
+    }
+
+    function handleUndo() {
+      if (history.length === 0) {
+        setStatus("Nothing to undo.");
         return;
-    }}
-    pushHistory('clearing all operator annotations');
-    localOps.clear();
-    czPairs = [];
-    pendingCZ = null;
-    renderOperations();
-    setStatus('All operator annotations cleared.');
-}}
+      }
 
-Plotly.newPlot(plotDiv, fig.data, fig.layout, config).then(() => {{
-    plotDiv.on('plotly_click', eventData => {{
-        // Only the qubit trace carries our customdata payload.
-        const point = eventData.points.find(point => point.customdata && point.customdata.length > 0);
-        if (!point) return;
+      const last = history.pop();
+      restoreState(last.state);
+      setStatus(`Undone ${last.description}.`);
+    }
 
-        const siteId = Number(point.customdata[0]);
-        if (activeOperator === 'CZ') {{
-            applyCZClick(siteId);
-        }} else if (activeOperator === 'Erase') {{
-            applyErase(siteId);
-        }} else {{
-            applyLocalOperator(siteId);
-        }}
-    }});
-}});
+    function handleClear() {
+      if (localOps.size === 0 && czPairs.length === 0 && pendingCZ === null) {
+        setStatus("Nothing to clear.");
+        return;
+      }
 
-window.addEventListener('resize', () => Plotly.Plots.resize(plotDiv));
-</script>
+      pushHistory("clearing all operations");
+
+      localOps.clear();
+      czPairs = [];
+      pendingCZ = null;
+
+      render();
+      setStatus("Cleared all operations.");
+    }
+
+    function handleSave() {
+      const now = new Date();
+      const filename =
+        "kagome_lattice_" +
+        now.getFullYear() +
+        String(now.getMonth() + 1).padStart(2, "0") +
+        String(now.getDate()).padStart(2, "0") +
+        "_" +
+        String(now.getHours()).padStart(2, "0") +
+        String(now.getMinutes()).padStart(2, "0") +
+        String(now.getSeconds()).padStart(2, "0");
+
+      Plotly.downloadImage(plotDiv, {
+        format: "png",
+        filename: filename,
+        scale: 2,
+        width: 1800,
+        height: 1200,
+      });
+
+      setStatus(`Saved current Kagome lattice as ${filename}.png`);
+    }
+
+    function handleSiteClick(siteId) {
+      if (currentMode === "Z") {
+        handleLocalOp(siteId, "Z");
+      } else if (currentMode === "X") {
+        handleLocalOp(siteId, "X");
+      } else if (currentMode === "CZ") {
+        handleCZ(siteId);
+      } else if (currentMode === "ERASE") {
+        handleErase(siteId);
+      }
+    }
+
+    // Mode button events
+    for (const btn of modeButtons) {
+      btn.addEventListener("click", () => {
+        currentMode = btn.dataset.mode;
+        updateActiveModeButtons();
+
+        if (currentMode === "CZ") {
+          setStatus("Mode: CZ. Click two qubits to connect them.");
+        } else if (currentMode === "ERASE") {
+          setStatus("Mode: Erase. Click a qubit to remove its local operator and any CZ connected to it.");
+        } else {
+          setStatus(`Mode: ${currentMode}`);
+        }
+      });
+    }
+
+    saveBtn.addEventListener("click", handleSave);
+    undoBtn.addEventListener("click", handleUndo);
+    clearBtn.addEventListener("click", handleClear);
+
+    render();
+
+    plotDiv.on("plotly_click", (eventData) => {
+      if (!eventData || !eventData.points || eventData.points.length === 0) {
+        return;
+      }
+
+      const point = eventData.points[0];
+      const curveNumber = point.curveNumber;
+
+      // Clicks are accepted on:
+      // 3 = node markers
+      // 4 = local operator text
+      // 5 = pending marker (if present)
+      const clickableCurveNumbers = new Set([3, 4, 5]);
+
+      if (!clickableCurveNumbers.has(curveNumber)) {
+        return;
+      }
+
+      const siteId = Number(point.customdata);
+      if (Number.isNaN(siteId)) {
+        return;
+      }
+
+      handleSiteClick(siteId);
+    });
+  </script>
 </body>
 </html>
 """
+
+    html = (
+        template
+        .replace("__SITE_DATA__", json.dumps(site_data))
+        .replace("__EDGE_PAIRS__", json.dumps(edge_pairs))
+        .replace("__BASE_EDGE_X__", json.dumps(base_edge_x))
+        .replace("__BASE_EDGE_Y__", json.dumps(base_edge_y))
+    )
+
+    return html
