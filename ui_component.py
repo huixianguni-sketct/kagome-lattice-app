@@ -133,16 +133,138 @@ def build_interactive_lattice_html(lattice) -> str:
       color: #374151;
     }
 
+    .content-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .plot-pane {
+      min-width: 0;
+    }
+
+    .qubit-panel {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #ffffff;
+      padding: 12px;
+      box-sizing: border-box;
+      max-height: 760px;
+      overflow-y: auto;
+    }
+
+    .qubit-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      color: #111827;
+    }
+
+    .tracker-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tracker-controls select {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 7px 9px;
+      background: white;
+      color: #111827;
+      font-size: 14px;
+    }
+
+    .tracker-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+
+    .tracker-table th,
+    .tracker-table td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    .tracker-table th {
+      color: #475569;
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .tracker-table th:first-child,
+    .tracker-table td:first-child {
+      width: 58px;
+    }
+
+    .tracker-table th:last-child,
+    .tracker-table td:last-child {
+      width: 32px;
+      text-align: center;
+    }
+
+    .op-sequence {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .op-entry {
+      line-height: 1.3;
+      color: #111827;
+    }
+
+    .empty-ops {
+      color: #94a3b8;
+    }
+
+    .tracker-empty {
+      margin: 8px 0 0 0;
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    .remove-track {
+      border: none;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0 2px;
+    }
+
+    .remove-track:hover {
+      color: #dc2626;
+    }
+
     #plot {
       width: 100%;
       height: 760px;
+    }
+
+    @media (max-width: 900px) {
+      .content-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .qubit-panel {
+        max-height: none;
+      }
     }
   </style>
 </head>
 <body>
   <div class="wrapper">
     <div class="toolbar">
-      <span class="toolbar-label">Operator Test 123</span>
+      <span class="toolbar-label">Operator</span>
 
       <button class="btn mode-btn active" data-mode="Z">Z</button>
       <button class="btn mode-btn" data-mode="X">X</button>
@@ -156,7 +278,36 @@ def build_interactive_lattice_html(lattice) -> str:
     </div>
 
     <div class="status" id="status">Mode: Z</div>
-    <div id="plot"></div>
+
+    <div class="content-layout">
+      <div class="plot-pane">
+        <div id="plot"></div>
+      </div>
+
+      <aside class="qubit-panel">
+        <h3>Tracked qubits</h3>
+
+        <div class="tracker-controls">
+          <select id="qubit-select" aria-label="Choose qubit to track"></select>
+          <button class="btn action" id="add-qubit-btn">Add</button>
+        </div>
+
+        <table class="tracker-table" aria-label="Tracked qubit operations">
+          <thead>
+            <tr>
+              <th>Qubit</th>
+              <th>Applied operators</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tracker-table-body"></tbody>
+        </table>
+
+        <p class="tracker-empty" id="tracker-empty">
+          No qubits added yet.
+        </p>
+      </aside>
+    </div>
   </div>
 
   <script>
@@ -172,6 +323,10 @@ def build_interactive_lattice_html(lattice) -> str:
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
     const clearBtn = document.getElementById("clear-btn");
+    const qubitSelect = document.getElementById("qubit-select");
+    const addQubitBtn = document.getElementById("add-qubit-btn");
+    const trackerTableBody = document.getElementById("tracker-table-body");
+    const trackerEmpty = document.getElementById("tracker-empty");
 
     const siteById = new Map(siteData.map(s => [s.id, s]));
 
@@ -186,8 +341,152 @@ def build_interactive_lattice_html(lattice) -> str:
     let history = [];           // array of { state, description }
     let panMode = false;
 
+    // Ordered list of currently active operations.
+    // Each entry is { id, type, qubits }.
+    let operationLog = [];
+    let nextOperationId = 1;
+
+    // Qubits chosen by the user for the right-hand table.
+    let trackedQubits = [];
+
     function setStatus(text) {
       statusDiv.textContent = text;
+    }
+
+    function initializeQubitSelector() {
+      qubitSelect.innerHTML = "";
+
+      for (const site of siteData) {
+        const option = document.createElement("option");
+        option.value = String(site.id);
+        option.textContent = `Qubit ${site.id}`;
+        qubitSelect.appendChild(option);
+      }
+    }
+
+    function addTrackedQubit(siteId) {
+      if (!siteById.has(siteId)) {
+        return;
+      }
+
+      if (!trackedQubits.includes(siteId)) {
+        trackedQubits.push(siteId);
+      }
+
+      updateTrackedTable();
+    }
+
+    function removeTrackedQubit(siteId) {
+      trackedQubits = trackedQubits.filter(id => id !== siteId);
+      updateTrackedTable();
+    }
+
+    function operationsForQubit(siteId) {
+      return operationLog.filter(event => event.qubits.includes(siteId));
+    }
+
+    function operationTextForQubit(event, siteId) {
+      if (event.type === "CZ") {
+        const partner = event.qubits.find(id => id !== siteId);
+        return `CZ with qubit ${partner}`;
+      }
+
+      return event.type;
+    }
+
+    function updateTrackedTable() {
+      trackerTableBody.innerHTML = "";
+      trackerEmpty.style.display = trackedQubits.length === 0 ? "block" : "none";
+
+      for (const siteId of trackedQubits) {
+        const row = document.createElement("tr");
+
+        const qubitCell = document.createElement("td");
+        qubitCell.textContent = String(siteId);
+
+        const opsCell = document.createElement("td");
+        const events = operationsForQubit(siteId);
+
+        if (events.length === 0) {
+          const empty = document.createElement("span");
+          empty.className = "empty-ops";
+          empty.textContent = "—";
+          opsCell.appendChild(empty);
+        } else {
+          const sequence = document.createElement("div");
+          sequence.className = "op-sequence";
+
+          events.forEach((event, index) => {
+            const entry = document.createElement("div");
+            entry.className = "op-entry";
+            entry.textContent = `${index + 1}. ${operationTextForQubit(event, siteId)}`;
+            sequence.appendChild(entry);
+          });
+
+          opsCell.appendChild(sequence);
+        }
+
+        const removeCell = document.createElement("td");
+        const removeButton = document.createElement("button");
+        removeButton.className = "remove-track";
+        removeButton.type = "button";
+        removeButton.title = `Remove qubit ${siteId} from table`;
+        removeButton.setAttribute("aria-label", `Remove qubit ${siteId} from table`);
+        removeButton.textContent = "×";
+        removeButton.addEventListener("click", () => removeTrackedQubit(siteId));
+        removeCell.appendChild(removeButton);
+
+        row.appendChild(qubitCell);
+        row.appendChild(opsCell);
+        row.appendChild(removeCell);
+        trackerTableBody.appendChild(row);
+      }
+    }
+
+    function recordOperation(type, qubits) {
+      operationLog.push({
+        id: nextOperationId++,
+        type: type,
+        qubits: [...qubits],
+      });
+    }
+
+    function removeLatestLocalOperation(siteId, type) {
+      for (let i = operationLog.length - 1; i >= 0; i--) {
+        const event = operationLog[i];
+        if (event.type === type && event.qubits.length === 1 && event.qubits[0] === siteId) {
+          operationLog.splice(i, 1);
+          return;
+        }
+      }
+    }
+
+    function removeCZOperation(a, b) {
+      const key = pairKey(a, b);
+
+      for (let i = operationLog.length - 1; i >= 0; i--) {
+        const event = operationLog[i];
+        if (event.type !== "CZ" || event.qubits.length !== 2) {
+          continue;
+        }
+
+        if (pairKey(event.qubits[0], event.qubits[1]) === key) {
+          operationLog.splice(i, 1);
+          return;
+        }
+      }
+    }
+
+    function syncVisibleLocalOp(siteId) {
+      for (let i = operationLog.length - 1; i >= 0; i--) {
+        const event = operationLog[i];
+        if ((event.type === "X" || event.type === "Z") && event.qubits.length === 1 && event.qubits[0] === siteId) {
+          localOps.set(siteId, event.type);
+          return;
+        }
+      }
+
+      localOps.delete(siteId);
     }
 
     function pairKey(a, b) {
@@ -209,6 +508,12 @@ def build_interactive_lattice_html(lattice) -> str:
         czPairs: czPairs.map(([a, b]) => [a, b]),
         pendingCZ: pendingCZ,
         currentMode: currentMode,
+        operationLog: operationLog.map(event => ({
+          id: event.id,
+          type: event.type,
+          qubits: [...event.qubits],
+        })),
+        nextOperationId: nextOperationId,
       };
     }
 
@@ -217,6 +522,12 @@ def build_interactive_lattice_html(lattice) -> str:
       czPairs = state.czPairs.map(([a, b]) => [a, b]);
       pendingCZ = state.pendingCZ;
       currentMode = state.currentMode;
+      operationLog = state.operationLog.map(event => ({
+        id: event.id,
+        type: event.type,
+        qubits: [...event.qubits],
+      }));
+      nextOperationId = state.nextOperationId;
 
       updateActiveModeButtons();
       render();
@@ -543,6 +854,7 @@ def build_interactive_lattice_html(lattice) -> str:
       };
 
       Plotly.react(plotDiv, traces, layout, config);
+      updateTrackedTable();
     }
 
     function describeConnectedCZs(siteId, pairs) {
@@ -566,21 +878,24 @@ def build_interactive_lattice_html(lattice) -> str:
 
       if (oldOp === newOp) {
         pushHistory(`removing ${newOp} from qubit ${siteId}`);
-        localOps.delete(siteId);
+        removeLatestLocalOperation(siteId, newOp);
+        syncVisibleLocalOp(siteId);
         render();
         setStatus(`Removed ${newOp} from qubit ${siteId}.`);
         return;
       }
 
       if (oldOp && oldOp !== newOp) {
-        pushHistory(`replacing ${oldOp} with ${newOp} on qubit ${siteId}`);
+        pushHistory(`applying ${newOp} to qubit ${siteId}`);
+        recordOperation(newOp, [siteId]);
         localOps.set(siteId, newOp);
         render();
-        setStatus(`Replaced ${oldOp} with ${newOp} on qubit ${siteId}.`);
+        setStatus(`Applied ${newOp} to qubit ${siteId}.`);
         return;
       }
 
       pushHistory(`applying ${newOp} to qubit ${siteId}`);
+      recordOperation(newOp, [siteId]);
       localOps.set(siteId, newOp);
       render();
       setStatus(`Applied ${newOp} to qubit ${siteId}.`);
@@ -609,6 +924,7 @@ def build_interactive_lattice_html(lattice) -> str:
       if (hasCZPair(a, b)) {
         pushHistory(`removing CZ between qubits ${a} and ${b}`);
         czPairs = czPairs.filter(([u, v]) => pairKey(u, v) !== pairKey(a, b));
+        removeCZOperation(a, b);
         pendingCZ = null;
         render();
         setStatus(`Removed CZ between qubits ${a} and ${b}.`);
@@ -617,6 +933,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
       pushHistory(`applying CZ to qubits ${a} and ${b}`);
       czPairs.push([a, b]);
+      recordOperation("CZ", [a, b]);
       pendingCZ = null;
       render();
       setStatus(`Applied CZ to qubits ${a} and ${b}.`);
@@ -661,6 +978,10 @@ def build_interactive_lattice_html(lattice) -> str:
         pendingCZ = null;
       }
 
+      // Erasing a qubit removes every tracked operation involving it.
+      // For CZ this removes the same two-qubit gate from both endpoints' rows.
+      operationLog = operationLog.filter(event => !event.qubits.includes(siteId));
+
       render();
       setStatus(`Erased ${descriptionParts.join(" and ")}.`);
     }
@@ -687,6 +1008,8 @@ def build_interactive_lattice_html(lattice) -> str:
       localOps.clear();
       czPairs = [];
       pendingCZ = null;
+      operationLog = [];
+      nextOperationId = 1;
 
       render();
       setStatus("Cleared all operations.");
@@ -761,6 +1084,22 @@ def build_interactive_lattice_html(lattice) -> str:
     undoBtn.addEventListener("click", handleUndo);
     clearBtn.addEventListener("click", handleClear);
 
+    addQubitBtn.addEventListener("click", () => {
+      const siteId = Number(qubitSelect.value);
+      if (!Number.isNaN(siteId)) {
+        addTrackedQubit(siteId);
+      }
+    });
+
+    qubitSelect.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addQubitBtn.click();
+      }
+    });
+
+    initializeQubitSelector();
+    updateTrackedTable();
     render();
 
     plotDiv.on("plotly_click", (eventData) => {
