@@ -101,6 +101,11 @@ def build_interactive_lattice_html(lattice) -> str:
       margin-right: 4px;
     }
 
+    .visibility-toolbar {
+      margin-top: -4px;
+      margin-bottom: 10px;
+    }
+
     .btn {
       border: 1px solid #cbd5e1;
       background: #f8fafc;
@@ -277,6 +282,19 @@ def build_interactive_lattice_html(lattice) -> str:
       <button class="btn action" id="clear-btn">Clear</button>
     </div>
 
+    <div class="toolbar visibility-toolbar">
+      <span class="toolbar-label">Visibility</span>
+
+      <button class="btn visibility-btn active" data-visibility="Z"
+              title="Show or hide Z labels">Z</button>
+
+      <button class="btn visibility-btn active" data-visibility="X"
+              title="Show or hide X labels">X</button>
+
+      <button class="btn visibility-btn active" data-visibility="CZ"
+              title="Show or hide CZ connections and labels">CZ</button>
+    </div>
+
     <div class="status" id="status">Mode: Z</div>
 
     <div class="content-layout">
@@ -319,6 +337,7 @@ def build_interactive_lattice_html(lattice) -> str:
     const plotDiv = document.getElementById("plot");
     const statusDiv = document.getElementById("status");
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+    const visibilityButtons = Array.from(document.querySelectorAll(".visibility-btn"));
     const panBtn = document.getElementById("pan-btn");
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
@@ -340,6 +359,14 @@ def build_interactive_lattice_html(lattice) -> str:
     let pendingCZ = null;       // first endpoint for CZ selection
     let history = [];           // array of { state, description }
     let panMode = false;
+
+    // Display-only visibility state. Turning one of these off does not
+    // remove the operator from the lattice state or tracked-qubit table.
+    let operatorVisibility = {
+      Z: true,
+      X: true,
+      CZ: true,
+    };
 
     // Ordered list of currently active operations.
     // Each entry is { id, type, qubits }.
@@ -597,6 +624,21 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
     
+    function updateVisibilityButtons() {
+      for (const btn of visibilityButtons) {
+        const key = btn.dataset.visibility;
+        const isVisible = operatorVisibility[key];
+
+        if (isVisible) {
+          btn.classList.add("active");
+          btn.setAttribute("aria-pressed", "true");
+        } else {
+          btn.classList.remove("active");
+          btn.setAttribute("aria-pressed", "false");
+        }
+      }
+    }
+
     function setPanMode(enabled) {
       panMode = enabled;
 
@@ -725,6 +767,9 @@ def build_interactive_lattice_html(lattice) -> str:
         const s = siteById.get(siteId);
         if (!s) continue;
 
+        // Visibility only changes what is drawn; the operator remains active.
+        if (!operatorVisibility[op]) continue;
+
         xs.push(s.x + offsetX);
         ys.push(s.y + offsetY);
 
@@ -776,6 +821,7 @@ def build_interactive_lattice_html(lattice) -> str:
         },
         hoverinfo: "skip",
         showlegend: false,
+        visible: operatorVisibility.CZ,
       };
 
       const czLabelTrace = {
@@ -791,6 +837,7 @@ def build_interactive_lattice_html(lattice) -> str:
         },
         hoverinfo: "skip",
         showlegend: false,
+        visible: operatorVisibility.CZ,
       };
 
       const nodeTrace = {
@@ -1123,6 +1170,26 @@ def build_interactive_lattice_html(lattice) -> str:
       });
     }
     
+    // Visibility controls only affect drawing.
+    // Operators remain active and continue to appear in the tracked table.
+    for (const btn of visibilityButtons) {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.visibility;
+        operatorVisibility[key] = !operatorVisibility[key];
+
+        updateVisibilityButtons();
+        render();
+
+        const stateText = operatorVisibility[key] ? "shown" : "hidden";
+
+        if (key === "CZ") {
+          setStatus(`CZ connections and labels are now ${stateText}.`);
+        } else {
+          setStatus(`${key} labels are now ${stateText}.`);
+        }
+      });
+    }
+
     panBtn.addEventListener("click", () => {
       setPanMode(!panMode);
     });
@@ -1151,6 +1218,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
     initializeQubitSelector();
     updateTrackedTable();
+    updateVisibilityButtons();
     render();
 
     plotDiv.on("plotly_click", (eventData) => {
