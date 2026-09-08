@@ -142,7 +142,7 @@ def build_interactive_lattice_html(lattice) -> str:
 <body>
   <div class="wrapper">
     <div class="toolbar">
-      <span class="toolbar-label">Operator</span>
+      <span class="toolbar-label">Operator Test 123</span>
 
       <button class="btn mode-btn active" data-mode="Z">Z</button>
       <button class="btn mode-btn" data-mode="X">X</button>
