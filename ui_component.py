@@ -482,22 +482,34 @@ def build_interactive_lattice_html(lattice) -> str:
       }
 
       const layout = {
-        paper_bgcolor: "white",
-        plot_bgcolor: "white",
-        margin: { l: 10, r: 10, t: 10, b: 10 },
-        xaxis: {
-          visible: false,
-          range: [minX, maxX],
-          scaleanchor: "y",
-          scaleratio: 1,
-          fixedrange: false,
-        },
-        yaxis: {
-          visible: false,
-          range: [minY, maxY],
-          fixedrange: false,
-        },
-      };
+          // Keep the user's current zoom/pan whenever Plotly.react()
+          // is called after X, Z, CZ, Erase, Undo, etc.
+          uirevision: "keep-kagome-view",
+
+          paper_bgcolor: "white",
+          plot_bgcolor: "white",
+
+          margin: {
+            l: 10,
+            r: 10,
+            t: 10,
+            b: 10
+          },
+
+          xaxis: {
+            visible: false,
+            range: [minX, maxX],
+            scaleanchor: "y",
+            scaleratio: 1,
+            fixedrange: false,
+          },
+
+          yaxis: {
+            visible: false,
+            range: [minY, maxY],
+            fixedrange: false,
+          },
+        };
 
       const config = {
         responsive: true,
