@@ -356,11 +356,57 @@ def build_interactive_lattice_html(lattice) -> str:
     function initializeQubitSelector() {
       qubitSelect.innerHTML = "";
 
+      // Keep the bulk-add action as the first dropdown option.
+      const allActiveOption = document.createElement("option");
+      allActiveOption.value = "__ALL_ACTIVE__";
+      allActiveOption.textContent = "Generate all available option";
+      qubitSelect.appendChild(allActiveOption);
+
       for (const site of siteData) {
         const option = document.createElement("option");
         option.value = String(site.id);
         option.textContent = `Qubit ${site.id}`;
         qubitSelect.appendChild(option);
+      }
+    }
+
+    function activeQubitIds() {
+      const active = new Set();
+
+      // operationLog contains only operations that are still active after
+      // erase / undo / clear, so it is the source of truth for this action.
+      for (const event of operationLog) {
+        for (const siteId of event.qubits) {
+          active.add(siteId);
+        }
+      }
+
+      return Array.from(active).sort((a, b) => a - b);
+    }
+
+    function addAllActiveQubits() {
+      const activeIds = activeQubitIds();
+
+      if (activeIds.length === 0) {
+        setStatus("No qubits currently have operators applied.");
+        return;
+      }
+
+      let addedCount = 0;
+
+      for (const siteId of activeIds) {
+        if (!trackedQubits.includes(siteId)) {
+          trackedQubits.push(siteId);
+          addedCount += 1;
+        }
+      }
+
+      updateTrackedTable();
+
+      if (addedCount === 0) {
+        setStatus("All qubits with active operators are already being tracked.");
+      } else {
+        setStatus(`Added ${addedCount} qubit${addedCount === 1 ? "" : "s"} with active operators to the table.`);
       }
     }
 
@@ -1085,6 +1131,11 @@ def build_interactive_lattice_html(lattice) -> str:
     clearBtn.addEventListener("click", handleClear);
 
     addQubitBtn.addEventListener("click", () => {
+      if (qubitSelect.value === "__ALL_ACTIVE__") {
+        addAllActiveQubits();
+        return;
+      }
+
       const siteId = Number(qubitSelect.value);
       if (!Number.isNaN(siteId)) {
         addTrackedQubit(siteId);
