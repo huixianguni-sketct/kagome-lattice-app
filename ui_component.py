@@ -149,6 +149,7 @@ def build_interactive_lattice_html(lattice) -> str:
       <button class="btn mode-btn" data-mode="CZ">CZ</button>
       <button class="btn mode-btn" data-mode="ERASE">Erase</button>
 
+      <button class="btn action" id="pan-btn">Pan</button>
       <button class="btn action" id="save-btn">Save PNG</button>
       <button class="btn action" id="undo-btn">Undo</button>
       <button class="btn action" id="clear-btn">Clear</button>
@@ -167,6 +168,7 @@ def build_interactive_lattice_html(lattice) -> str:
     const plotDiv = document.getElementById("plot");
     const statusDiv = document.getElementById("status");
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+    const panBtn = document.getElementById("pan-btn");
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
     const clearBtn = document.getElementById("clear-btn");
@@ -182,6 +184,7 @@ def build_interactive_lattice_html(lattice) -> str:
     let czPairs = [];           // array of [a, b]
     let pendingCZ = null;       // first endpoint for CZ selection
     let history = [];           // array of { state, description }
+    let panMode = false;
 
     function setStatus(text) {
       statusDiv.textContent = text;
@@ -234,6 +237,28 @@ def build_interactive_lattice_html(lattice) -> str:
         } else {
           btn.classList.remove("active");
         }
+      }
+    }
+    
+    function setPanMode(enabled) {
+      panMode = enabled;
+
+      if (panMode) {
+        panBtn.classList.add("active");
+
+        Plotly.relayout(plotDiv, {
+          dragmode: "pan"
+        });
+
+        setStatus(
+          "Pan mode: click and drag the lattice to move around."
+        );
+      } else {
+        panBtn.classList.remove("active");
+
+        Plotly.relayout(plotDiv, {
+          dragmode: "zoom"
+        });
       }
     }
 
@@ -705,19 +730,33 @@ def build_interactive_lattice_html(lattice) -> str:
     // Mode button events
     for (const btn of modeButtons) {
       btn.addEventListener("click", () => {
+
+        // Return from navigation mode to operator mode.
+        if (panMode) {
+          setPanMode(false);
+        }
+
         currentMode = btn.dataset.mode;
+
         updateActiveModeButtons();
 
         if (currentMode === "CZ") {
-          setStatus("Mode: CZ. Click two qubits to connect them.");
+          setStatus(
+            "Mode: CZ. Click two qubits to connect them."
+          );
         } else if (currentMode === "ERASE") {
-          setStatus("Mode: Erase. Click a qubit to remove its local operator and any CZ connected to it.");
+          setStatus(
+            "Mode: Erase. Click a qubit to remove its local operator and any CZ connected to it."
+          );
         } else {
           setStatus(`Mode: ${currentMode}`);
         }
       });
     }
-
+    
+    panBtn.addEventListener("click", () => {
+      setPanMode(!panMode);
+    });
     saveBtn.addEventListener("click", handleSave);
     undoBtn.addEventListener("click", handleUndo);
     clearBtn.addEventListener("click", handleClear);
@@ -725,6 +764,9 @@ def build_interactive_lattice_html(lattice) -> str:
     render();
 
     plotDiv.on("plotly_click", (eventData) => {
+      if (panMode) {
+        return;
+      }
       if (!eventData || !eventData.points || eventData.points.length === 0) {
         return;
       }
