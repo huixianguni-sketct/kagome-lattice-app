@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 
 def _coerce_hex_color(value: str) -> str:
@@ -35,6 +36,200 @@ def _site_color(site) -> str:
     return "#9ca3af"
 
 
+
+def _canonical_cycle(cycle):
+    """Canonicalize a cyclic list up to rotation and reversal."""
+    seq = list(cycle)
+    n = len(seq)
+    variants = []
+
+    for arr in (seq, list(reversed(seq))):
+        for shift in range(n):
+            variants.append(tuple(arr[shift:] + arr[:shift]))
+
+    return min(variants)
+
+
+def _detect_complete_stars(lattice):
+    """
+    Find complete Kagome hexagons (open-boundary stars).
+
+    A valid star is an induced 6-cycle of nearest-neighbour Kagome bonds.
+    Any hexagon cut by the finite boundary is therefore automatically ignored.
+    """
+    sites = sorted(lattice.sites, key=lambda s: int(s.site_id))
+    site_by_id = {int(s.site_id): s for s in sites}
+    neighbors = {
+        int(q): [int(v) for v in values]
+        for q, values in lattice.neighbors.items()
+    }
+
+    cycles = set()
+
+    for start in sorted(neighbors):
+
+        def dfs(current, path):
+            if len(path) == 6:
+                if start in neighbors[current]:
+                    cyc = _canonical_cycle(path)
+                    subset = set(cyc)
+
+                    # An elementary Kagome hexagon is an induced 6-cycle:
+                    # exactly six graph edges occur inside the six vertices.
+                    internal_edges = (
+                        sum(
+                            1
+                            for q in subset
+                            for v in neighbors[q]
+                            if v in subset
+                        )
+                        // 2
+                    )
+
+                    if internal_edges == 6:
+                        cycles.add(cyc)
+
+                return
+
+            for nxt in neighbors[current]:
+                if nxt == start:
+                    continue
+                if nxt in path:
+                    continue
+
+                # The smallest vertex ID is used as the DFS start.
+                if nxt < start:
+                    continue
+
+                dfs(nxt, path + [nxt])
+
+        dfs(start, [start])
+
+    all_colors = {"Red", "Green", "Blue"}
+    stars = []
+
+    for cyc in cycles:
+        cx = sum(float(site_by_id[q].x) for q in cyc) / 6.0
+        cy = sum(float(site_by_id[q].y) for q in cyc) / 6.0
+
+        # Stable cyclic order around the hexagon.
+        ordered = sorted(
+            cyc,
+            key=lambda q: math.atan2(
+                float(site_by_id[q].y) - cy,
+                float(site_by_id[q].x) - cx,
+            ),
+        )
+
+        # A star of one colour is surrounded by the other two colours.
+        present = {str(site_by_id[q].color) for q in ordered}
+        missing = all_colors - present
+        star_color = next(iter(missing)) if len(missing) == 1 else "Unknown"
+
+        stars.append(
+            {
+                "qubits": [int(q) for q in ordered],
+                "color": star_color,
+                "center": [cx, cy],
+            }
+        )
+
+    stars.sort(key=lambda item: (item["center"][1], item["center"][0]))
+
+    for idx, star in enumerate(stars):
+        star["id"] = idx
+
+    return stars
+
+
+def _detect_complete_triangles(lattice):
+    """
+    Find every complete 3-body Bt triangle in the visible open patch.
+
+    The Bt terms are the nearest equilateral triangles formed by three qubits
+    of the same Red/Green/Blue colour.  Their side length is sqrt(3) when the
+    Kagome nearest-neighbour spacing is 1.
+    """
+    sites = sorted(lattice.sites, key=lambda s: int(s.site_id))
+    site_by_id = {int(s.site_id): s for s in sites}
+
+    ids_by_color = {"Red": [], "Green": [], "Blue": []}
+
+    for site in sites:
+        color = str(site.color)
+        if color in ids_by_color:
+            ids_by_color[color].append(int(site.site_id))
+
+    triangles = []
+    target_distance_squared = 3.0
+    tol = 1e-8
+
+    for color, ids in ids_by_color.items():
+        same_color_neighbors = {q: set() for q in ids}
+
+        for i, a in enumerate(ids):
+            sa = site_by_id[a]
+
+            for b in ids[i + 1 :]:
+                sb = site_by_id[b]
+
+                dx = float(sa.x) - float(sb.x)
+                dy = float(sa.y) - float(sb.y)
+                d2 = dx * dx + dy * dy
+
+                if abs(d2 - target_distance_squared) < tol:
+                    same_color_neighbors[a].add(b)
+                    same_color_neighbors[b].add(a)
+
+        # Every 3-clique of this nearest-same-colour graph is one Bt triangle.
+        for a in ids:
+            for b in sorted(q for q in same_color_neighbors[a] if q > a):
+                common = same_color_neighbors[a].intersection(
+                    same_color_neighbors[b]
+                )
+
+                for c in sorted(q for q in common if q > b):
+                    cx = (
+                        float(site_by_id[a].x)
+                        + float(site_by_id[b].x)
+                        + float(site_by_id[c].x)
+                    ) / 3.0
+
+                    cy = (
+                        float(site_by_id[a].y)
+                        + float(site_by_id[b].y)
+                        + float(site_by_id[c].y)
+                    ) / 3.0
+
+                    ordered = sorted(
+                        [a, b, c],
+                        key=lambda q: math.atan2(
+                            float(site_by_id[q].y) - cy,
+                            float(site_by_id[q].x) - cx,
+                        ),
+                    )
+
+                    triangles.append(
+                        {
+                            "qubits": [int(q) for q in ordered],
+                            "color": color,
+                            "center": [cx, cy],
+                        }
+                    )
+
+    triangles.sort(
+        key=lambda item: (
+            item["center"][1],
+            item["center"][0],
+            item["color"],
+        )
+    )
+
+    for idx, triangle in enumerate(triangles):
+        triangle["id"] = idx
+
+    return triangles
+
 def build_interactive_lattice_html(lattice) -> str:
     """
     Build the interactive Plotly/HTML component used inside Streamlit.
@@ -47,6 +242,10 @@ def build_interactive_lattice_html(lattice) -> str:
 
     sites = sorted(lattice.sites, key=lambda s: int(s.site_id))
     edge_pairs = [(int(i), int(j)) for i, j in lattice.edges]
+
+    # Open-boundary physics objects: only complete stars/triangles are kept.
+    star_data = _detect_complete_stars(lattice)
+    triangle_data = _detect_complete_triangles(lattice)
 
     site_data = [
         {
@@ -102,6 +301,11 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     .visibility-toolbar {
+      margin-top: -4px;
+      margin-bottom: 10px;
+    }
+
+    .violation-toolbar {
       margin-top: -4px;
       margin-bottom: 10px;
     }
@@ -269,7 +473,7 @@ def build_interactive_lattice_html(lattice) -> str:
 <body>
   <div class="wrapper">
     <div class="toolbar">
-      <span class="toolbar-label">Operator Test 123</span>
+      <span class="toolbar-label">Operator</span>
 
       <button class="btn mode-btn active" data-mode="Z">Z</button>
       <button class="btn mode-btn" data-mode="X">X</button>
@@ -293,6 +497,24 @@ def build_interactive_lattice_html(lattice) -> str:
 
       <button class="btn visibility-btn active" data-visibility="CZ"
               title="Show or hide CZ connections and labels">CZ</button>
+    </div>
+
+    <div class="toolbar violation-toolbar">
+      <span class="toolbar-label">Violation</span>
+
+      <button
+        class="btn violation-btn"
+        data-violation="STAR"
+        title="Show or hide violated star operators">
+        Star (Aₛ)
+      </button>
+
+      <button
+        class="btn violation-btn"
+        data-violation="TRIANGLE"
+        title="Show or hide violated triangle operators">
+        Triangle (Bₜ)
+      </button>
     </div>
 
     <div class="status" id="status">Mode: Z</div>
@@ -333,11 +555,14 @@ def build_interactive_lattice_html(lattice) -> str:
     const edgePairs = __EDGE_PAIRS__;
     const baseEdgeX = __BASE_EDGE_X__;
     const baseEdgeY = __BASE_EDGE_Y__;
+    const starData = __STAR_DATA__;
+    const triangleData = __TRIANGLE_DATA__;
 
     const plotDiv = document.getElementById("plot");
     const statusDiv = document.getElementById("status");
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
     const visibilityButtons = Array.from(document.querySelectorAll(".visibility-btn"));
+    const violationButtons = Array.from(document.querySelectorAll(".violation-btn"));
     const panBtn = document.getElementById("pan-btn");
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
@@ -366,6 +591,13 @@ def build_interactive_lattice_html(lattice) -> str:
       Z: true,
       X: true,
       CZ: true,
+    };
+
+    // Violation overlays are display-only.  The physics is always evaluated
+    // from the active ordered operationLog.
+    let violationVisibility = {
+      STAR: false,
+      TRIANGLE: false,
     };
 
     // Ordered list of currently active operations.
@@ -628,6 +860,296 @@ def build_interactive_lattice_html(lattice) -> str:
       for (const btn of visibilityButtons) {
         const key = btn.dataset.visibility;
         const isVisible = operatorVisibility[key];
+
+        if (isVisible) {
+          btn.classList.add("active");
+          btn.setAttribute("aria-pressed", "true");
+        } else {
+          btn.classList.remove("active");
+          btn.setAttribute("aria-pressed", "false");
+        }
+      }
+    }
+
+
+    // ================================================================
+    // Local D4 Hamiltonian checks
+    //
+    // Bt = Z⊗Z⊗Z.
+    //
+    // As = (Π CZ around a complete hexagon) X⊗6.
+    //
+    // The reference ground state obeys As = Bt = +1.  For a conjugated
+    // star, U† As U can always be written as
+    //
+    //      sign × As × Z(mask)
+    //
+    // for the allowed X/Z/CZ gates.  Its expectation is:
+    //      sign, if Z(mask) is generated by the complete Bt constraints;
+    //      0,    otherwise.
+    //
+    // This gives the characteristic As = 0 after a local X excitation,
+    // while a local Z on a star qubit gives As = -1.
+    // ================================================================
+
+    const maxQubitId = Math.max(...siteData.map(site => site.id));
+
+    function qubitBit(siteId) {
+      return 1n << BigInt(siteId);
+    }
+
+    function qubitMask(qubits) {
+      let mask = 0n;
+
+      for (const siteId of qubits) {
+        mask ^= qubitBit(siteId);
+      }
+
+      return mask;
+    }
+
+    function buildTriangleZBasis() {
+      const basis = Array(maxQubitId + 1).fill(0n);
+
+      for (const triangle of triangleData) {
+        let value = qubitMask(triangle.qubits);
+
+        for (let pivot = maxQubitId; pivot >= 0; pivot--) {
+          const bit = qubitBit(pivot);
+
+          if ((value & bit) === 0n) {
+            continue;
+          }
+
+          if (basis[pivot] !== 0n) {
+            value ^= basis[pivot];
+          } else {
+            basis[pivot] = value;
+            break;
+          }
+        }
+      }
+
+      return basis;
+    }
+
+    const triangleZBasis = buildTriangleZBasis();
+
+    function isTriangleStabilizerMask(mask) {
+      let value = mask;
+
+      for (let pivot = maxQubitId; pivot >= 0; pivot--) {
+        const bit = qubitBit(pivot);
+
+        if ((value & bit) === 0n) {
+          continue;
+        }
+
+        if (triangleZBasis[pivot] !== 0n) {
+          value ^= triangleZBasis[pivot];
+        } else {
+          return false;
+        }
+      }
+
+      return value === 0n;
+    }
+
+    function triangleExpectation(triangle) {
+      const triangleSet = new Set(triangle.qubits);
+      let sign = 1;
+
+      // Z and CZ commute with Bt.  Each active X on one of the triangle's
+      // three qubits anticommutes with Bt and flips its eigenvalue.
+      for (const event of operationLog) {
+        if (event.type !== "X" || event.qubits.length !== 1) {
+          continue;
+        }
+
+        if (triangleSet.has(event.qubits[0])) {
+          sign *= -1;
+        }
+      }
+
+      return sign;
+    }
+
+    function starExpectation(star) {
+      const cycle = star.qubits;
+      const starSet = new Set(cycle);
+      const cycleIndex = new Map(cycle.map((q, index) => [q, index]));
+
+      let sign = 1;
+      let zMask = 0n;
+
+      // If the user applied gates G1, G2, ..., Gn, then
+      //
+      // U† As U = G1†(...Gn† As Gn...)G1,
+      //
+      // so conjugation is evaluated in reverse chronological order.
+      for (let opIndex = operationLog.length - 1; opIndex >= 0; opIndex--) {
+        const event = operationLog[opIndex];
+
+        if (event.type === "Z" && event.qubits.length === 1) {
+          const q = event.qubits[0];
+
+          // Zq anticommutes with the Xq factor of As.
+          if (starSet.has(q)) {
+            sign *= -1;
+          }
+
+          continue;
+        }
+
+        if (event.type === "X" && event.qubits.length === 1) {
+          const q = event.qubits[0];
+
+          // Conjugating an already-present Zq by Xq contributes a minus sign.
+          if ((zMask & qubitBit(q)) !== 0n) {
+            sign *= -1;
+          }
+
+          if (starSet.has(q)) {
+            const idx = cycleIndex.get(q);
+            const previous = cycle[(idx + cycle.length - 1) % cycle.length];
+            const next = cycle[(idx + 1) % cycle.length];
+
+            // Xq conjugates the two CZs of As touching q, producing Z on
+            // the two neighbouring star vertices.
+            zMask ^= qubitBit(previous);
+            zMask ^= qubitBit(next);
+          }
+
+          continue;
+        }
+
+        if (event.type === "CZ" && event.qubits.length === 2) {
+          const a = event.qubits[0];
+          const b = event.qubits[1];
+
+          const aInStar = starSet.has(a);
+          const bInStar = starSet.has(b);
+
+          // CZ_ab X_a X_b CZ_ab = - X_a X_b Z_a Z_b.
+          if (aInStar && bInStar) {
+            sign *= -1;
+          }
+
+          // If one endpoint carries an X factor from As, conjugation by CZ
+          // decorates it with Z on the opposite endpoint.
+          if (aInStar) {
+            zMask ^= qubitBit(b);
+          }
+
+          if (bInStar) {
+            zMask ^= qubitBit(a);
+          }
+        }
+      }
+
+      // The complete open-boundary Bt triangles define the diagonal +1
+      // constraints used here.  If the residual Z string is not generated by
+      // them, its ground-state expectation vanishes.
+      if (!isTriangleStabilizerMask(zMask)) {
+        return 0;
+      }
+
+      return sign;
+    }
+
+    function violatedStars() {
+      return starData
+        .map(star => ({
+          star: star,
+          expectation: starExpectation(star),
+        }))
+        .filter(item => item.expectation !== 1);
+    }
+
+    function violatedTriangles() {
+      return triangleData
+        .map(triangle => ({
+          triangle: triangle,
+          expectation: triangleExpectation(triangle),
+        }))
+        .filter(item => item.expectation !== 1);
+    }
+
+    function polygonPath(qubits) {
+      const points = qubits.map(siteId => siteById.get(siteId));
+
+      if (points.some(point => !point)) {
+        return "";
+      }
+
+      const first = points[0];
+      let path = `M ${first.x},${first.y}`;
+
+      for (let i = 1; i < points.length; i++) {
+        path += ` L ${points[i].x},${points[i].y}`;
+      }
+
+      path += " Z";
+      return path;
+    }
+
+    function buildViolationShapes() {
+      const shapes = [];
+
+      if (violationVisibility.STAR) {
+        for (const item of violatedStars()) {
+          const path = polygonPath(item.star.qubits);
+
+          if (!path) {
+            continue;
+          }
+
+          shapes.push({
+            type: "path",
+            path: path,
+            xref: "x",
+            yref: "y",
+            layer: "below",
+            fillcolor: "rgba(239, 68, 68, 0.11)",
+            line: {
+              color: "rgba(239, 68, 68, 0.30)",
+              width: 2,
+            },
+          });
+        }
+      }
+
+      if (violationVisibility.TRIANGLE) {
+        for (const item of violatedTriangles()) {
+          const path = polygonPath(item.triangle.qubits);
+
+          if (!path) {
+            continue;
+          }
+
+          shapes.push({
+            type: "path",
+            path: path,
+            xref: "x",
+            yref: "y",
+            layer: "above",
+            fillcolor: "rgba(0, 0, 0, 0)",
+            line: {
+              color: "rgba(220, 38, 38, 0.72)",
+              width: 2,
+              dash: "dot",
+            },
+          });
+        }
+      }
+
+      return shapes;
+    }
+
+    function updateViolationButtons() {
+      for (const btn of violationButtons) {
+        const key = btn.dataset.violation;
+        const isVisible = violationVisibility[key];
 
         if (isVisible) {
           btn.classList.add("active");
@@ -918,6 +1440,9 @@ def build_interactive_lattice_html(lattice) -> str:
           paper_bgcolor: "white",
           plot_bgcolor: "white",
 
+          // Star glows and dotted Bt triangles are display overlays only.
+          shapes: buildViolationShapes(),
+
           margin: {
             l: 10,
             r: 10,
@@ -1190,6 +1715,39 @@ def build_interactive_lattice_html(lattice) -> str:
       });
     }
 
+
+    // Violation display controls.  Toggling these buttons does not modify the
+    // active gate sequence; it only turns the Hamiltonian diagnostics on/off.
+    for (const btn of violationButtons) {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.violation;
+        violationVisibility[key] = !violationVisibility[key];
+
+        updateViolationButtons();
+        render();
+
+        if (violationVisibility[key]) {
+          if (key === "STAR") {
+            const count = violatedStars().length;
+            setStatus(
+              `Star violation display on: ${count} violated complete star${count === 1 ? "" : "s"}.`
+            );
+          } else {
+            const count = violatedTriangles().length;
+            setStatus(
+              `Triangle violation display on: ${count} violated complete triangle${count === 1 ? "" : "s"}.`
+            );
+          }
+        } else {
+          setStatus(
+            key === "STAR"
+              ? "Star violation display off."
+              : "Triangle violation display off."
+          );
+        }
+      });
+    }
+
     panBtn.addEventListener("click", () => {
       setPanMode(!panMode);
     });
@@ -1219,6 +1777,7 @@ def build_interactive_lattice_html(lattice) -> str:
     initializeQubitSelector();
     updateTrackedTable();
     updateVisibilityButtons();
+    updateViolationButtons();
     render();
 
     plotDiv.on("plotly_click", (eventData) => {
@@ -1260,6 +1819,8 @@ def build_interactive_lattice_html(lattice) -> str:
         .replace("__EDGE_PAIRS__", json.dumps(edge_pairs))
         .replace("__BASE_EDGE_X__", json.dumps(base_edge_x))
         .replace("__BASE_EDGE_Y__", json.dumps(base_edge_y))
+        .replace("__STAR_DATA__", json.dumps(star_data))
+        .replace("__TRIANGLE_DATA__", json.dumps(triangle_data))
     )
 
     return html
