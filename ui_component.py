@@ -52,20 +52,31 @@ def _canonical_cycle(cycle):
 
 def _detect_complete_stars(lattice):
     """
-    Find complete Kagome hexagons (open-boundary stars).
+    Find complete 12-body D4 star operators in the visible open patch.
 
-    A valid star is an induced 6-cycle of nearest-neighbour Kagome bonds.
-    Any hexagon cut by the finite boundary is therefore automatically ignored.
+    Fig. 2 of the paper shows that a star is NOT simply the six vertices of a
+    Kagome hexagon.  Instead it contains:
+
+      * inner_qubits: the six vertices of the central Kagome hexagon.  The
+        six CZ gates form a closed ring on these vertices.
+
+      * x_qubits: the six outward-pointing triangle tips surrounding that
+        hexagon.  X acts on these six qubits.
+
+    All six x_qubits have the same Red/Green/Blue colour, which is the colour
+    of the star.  If even one of the six outward tips is missing at an open
+    boundary, that star is excluded.
     """
     sites = sorted(lattice.sites, key=lambda s: int(s.site_id))
     site_by_id = {int(s.site_id): s for s in sites}
     neighbors = {
-        int(q): [int(v) for v in values]
+        int(q): {int(v) for v in values}
         for q, values in lattice.neighbors.items()
     }
 
     cycles = set()
 
+    # First locate elementary Kagome hexagons as induced 6-cycles.
     for start in sorted(neighbors):
 
         def dfs(current, path):
@@ -74,8 +85,6 @@ def _detect_complete_stars(lattice):
                     cyc = _canonical_cycle(path)
                     subset = set(cyc)
 
-                    # An elementary Kagome hexagon is an induced 6-cycle:
-                    # exactly six graph edges occur inside the six vertices.
                     internal_edges = (
                         sum(
                             1
@@ -96,8 +105,6 @@ def _detect_complete_stars(lattice):
                     continue
                 if nxt in path:
                     continue
-
-                # The smallest vertex ID is used as the DFS start.
                 if nxt < start:
                     continue
 
@@ -105,15 +112,14 @@ def _detect_complete_stars(lattice):
 
         dfs(start, [start])
 
-    all_colors = {"Red", "Green", "Blue"}
     stars = []
 
     for cyc in cycles:
         cx = sum(float(site_by_id[q].x) for q in cyc) / 6.0
         cy = sum(float(site_by_id[q].y) for q in cyc) / 6.0
 
-        # Stable cyclic order around the hexagon.
-        ordered = sorted(
+        # Geometric cyclic ordering of the six inner hexagon vertices.
+        inner = sorted(
             cyc,
             key=lambda q: math.atan2(
                 float(site_by_id[q].y) - cy,
@@ -121,14 +127,51 @@ def _detect_complete_stars(lattice):
             ),
         )
 
-        # A star of one colour is surrounded by the other two colours.
-        present = {str(site_by_id[q].color) for q in ordered}
-        missing = all_colors - present
-        star_color = next(iter(missing)) if len(missing) == 1 else "Unknown"
+        inner_set = set(inner)
+        x_qubits = []
+        complete = True
+
+        # Every edge of a complete Kagome hexagon belongs to a small triangle.
+        # The third vertex of that triangle is one of the six X-support tips.
+        for idx, a in enumerate(inner):
+            b = inner[(idx + 1) % 6]
+
+            common_external = (
+                neighbors[a]
+                .intersection(neighbors[b])
+                .difference(inner_set)
+            )
+
+            if len(common_external) != 1:
+                complete = False
+                break
+
+            x_qubits.append(next(iter(common_external)))
+
+        # Open-boundary rule: ignore any star that does not have all 12 qubits.
+        if not complete or len(set(x_qubits)) != 6:
+            continue
+
+        tip_colors = {str(site_by_id[q].color) for q in x_qubits}
+
+        # In the paper's three-colouring, all six X tips of one star have the
+        # same colour.  Reject anything inconsistent with that geometry.
+        if len(tip_colors) != 1:
+            continue
+
+        star_color = next(iter(tip_colors))
 
         stars.append(
             {
-                "qubits": [int(q) for q in ordered],
+                "inner_qubits": [int(q) for q in inner],
+                "x_qubits": [int(q) for q in x_qubits],
+                "cz_edges": [
+                    [
+                        int(inner[idx]),
+                        int(inner[(idx + 1) % 6]),
+                    ]
+                    for idx in range(6)
+                ],
                 "color": star_color,
                 "center": [cx, cy],
             }
@@ -140,7 +183,6 @@ def _detect_complete_stars(lattice):
         star["id"] = idx
 
     return stars
-
 
 def _detect_complete_triangles(lattice):
     """
@@ -877,7 +919,8 @@ def build_interactive_lattice_html(lattice) -> str:
     //
     // Bt = Z⊗Z⊗Z.
     //
-    // As = (Π CZ around a complete hexagon) X⊗6.
+    // As = (Π CZ around the six INNER hexagon vertices)
+    //      × (X on the six OUTWARD same-colour tips).
     //
     // The reference ground state obeys As = Bt = +1.  For a conjugated
     // star, U† As U can always be written as
@@ -975,47 +1018,86 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function starExpectation(star) {
-      const cycle = star.qubits;
-      const starSet = new Set(cycle);
-      const cycleIndex = new Map(cycle.map((q, index) => [q, index]));
+      /*
+       * Correct 12-body star operator from Fig. 2:
+       *
+       *   As = [ product of six CZ gates around the INNER hexagon ]
+       *        [ product of X on the six OUTWARD tips ].
+       *
+       * The inner and X-support qubits are disjoint.
+       *
+       * After conjugating by the user's ordered Clifford circuit U,
+       *
+       *   U† As U = sign × As × Z(residualMask).
+       *
+       * Conjugation alone is NOT the final expectation-value test.  Because
+       * Bt = +1 in the ground state, a residual Z string that is a product of
+       * complete Bt triangle operators is equivalent to +1.  We therefore
+       * reduce residualMask modulo the Bt stabilizer span below.
+       */
+
+      const inner = star.inner_qubits;
+      const xTips = star.x_qubits;
+
+      const innerSet = new Set(inner);
+      const xTipSet = new Set(xTips);
+      const innerIndex = new Map(
+        inner.map((q, index) => [q, index])
+      );
 
       let sign = 1;
       let zMask = 0n;
 
-      // If the user applied gates G1, G2, ..., Gn, then
-      //
-      // U† As U = G1†(...Gn† As Gn...)G1,
-      //
-      // so conjugation is evaluated in reverse chronological order.
+      // For U = G_n ... G_2 G_1, evaluate U† As U by conjugating in
+      // reverse chronological order through the active operation log.
       for (let opIndex = operationLog.length - 1; opIndex >= 0; opIndex--) {
         const event = operationLog[opIndex];
 
+        // --------------------------------------------------------------
+        // User Z_q
+        //
+        // Z anticommutes only with an X factor of As.  Therefore a Z on
+        // one of the six outward tips flips this star's sign.
+        // --------------------------------------------------------------
         if (event.type === "Z" && event.qubits.length === 1) {
           const q = event.qubits[0];
 
-          // Zq anticommutes with the Xq factor of As.
-          if (starSet.has(q)) {
+          if (xTipSet.has(q)) {
             sign *= -1;
           }
 
           continue;
         }
 
+        // --------------------------------------------------------------
+        // User X_q
+        //
+        // If q lies on the INNER CZ ring:
+        //
+        //   X_q CZ_(p,q) CZ_(q,r) X_q
+        //       = CZ_(p,q) CZ_(q,r) Z_p Z_r.
+        //
+        // Hence X on an inner-hexagon vertex adds Z on its two neighbours
+        // around that hexagon.
+        //
+        // X also flips the sign of any already-existing residual Z_q.
+        // --------------------------------------------------------------
         if (event.type === "X" && event.qubits.length === 1) {
           const q = event.qubits[0];
 
-          // Conjugating an already-present Zq by Xq contributes a minus sign.
           if ((zMask & qubitBit(q)) !== 0n) {
             sign *= -1;
           }
 
-          if (starSet.has(q)) {
-            const idx = cycleIndex.get(q);
-            const previous = cycle[(idx + cycle.length - 1) % cycle.length];
-            const next = cycle[(idx + 1) % cycle.length];
+          if (innerSet.has(q)) {
+            const idx = innerIndex.get(q);
+            const previous = inner[
+              (idx + inner.length - 1) % inner.length
+            ];
+            const next = inner[
+              (idx + 1) % inner.length
+            ];
 
-            // Xq conjugates the two CZs of As touching q, producing Z on
-            // the two neighbouring star vertices.
             zMask ^= qubitBit(previous);
             zMask ^= qubitBit(next);
           }
@@ -1023,33 +1105,50 @@ def build_interactive_lattice_html(lattice) -> str:
           continue;
         }
 
+        // --------------------------------------------------------------
+        // User CZ_(a,b)
+        //
+        // CZ commutes with the inner CZ ring.  It only decorates the
+        // OUTWARD X support:
+        //
+        //   CZ_ab X_a CZ_ab = X_a Z_b.
+        //
+        // If both a and b are X-support tips, both Z factors appear and
+        // there is the usual minus sign when put into X...Z normal order.
+        // --------------------------------------------------------------
         if (event.type === "CZ" && event.qubits.length === 2) {
           const a = event.qubits[0];
           const b = event.qubits[1];
 
-          const aInStar = starSet.has(a);
-          const bInStar = starSet.has(b);
+          const aHasX = xTipSet.has(a);
+          const bHasX = xTipSet.has(b);
 
-          // CZ_ab X_a X_b CZ_ab = - X_a X_b Z_a Z_b.
-          if (aInStar && bInStar) {
+          if (aHasX && bHasX) {
             sign *= -1;
           }
 
-          // If one endpoint carries an X factor from As, conjugation by CZ
-          // decorates it with Z on the opposite endpoint.
-          if (aInStar) {
+          if (aHasX) {
             zMask ^= qubitBit(b);
           }
 
-          if (bInStar) {
+          if (bHasX) {
             zMask ^= qubitBit(a);
           }
         }
       }
 
-      // The complete open-boundary Bt triangles define the diagonal +1
-      // constraints used here.  If the residual Z string is not generated by
-      // them, its ground-state expectation vanishes.
+      /*
+       * Since As |psi0> = |psi0>,
+       *
+       *   <psi0| U† As U |psi0>
+       *     = sign × <psi0| Z(residualMask) |psi0>.
+       *
+       * For our open-boundary implementation we keep only complete Bt
+       * triangles.  If residualMask is a GF(2) sum/product of those Bt
+       * operators, its expectation is +1.  Otherwise the corresponding
+       * diagonal Z string is outside the retained local Bt stabilizer group
+       * and its expectation is taken to be 0.
+       */
       if (!isTriangleStabilizerMask(zMask)) {
         return 0;
       }
@@ -1098,7 +1197,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
       if (violationVisibility.STAR) {
         for (const item of violatedStars()) {
-          const path = polygonPath(item.star.qubits);
+          const path = polygonPath(item.star.inner_qubits);
 
           if (!path) {
             continue;
