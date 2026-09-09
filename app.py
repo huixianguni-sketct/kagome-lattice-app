@@ -16,8 +16,8 @@ st.set_page_config(
 
 with st.sidebar:
     st.header("Lattice")
-    nx = st.slider("Unit cells along $a_1$", min_value=1, max_value=16, value=8)
-    ny = st.slider("Unit cells along $a_2$", min_value=1, max_value=16, value=8)
+    nx = st.slider("Unit cells along $a_1$", min_value=1, max_value=20, value=12)
+    ny = st.slider("Unit cells along $a_2$", min_value=1, max_value=20, value=12)
 
 
 st.title("Interactive Kagome Qubit Lattice")
