@@ -286,6 +286,8 @@ def build_interactive_lattice_html(lattice) -> str:
     edge_pairs = [(int(i), int(j)) for i, j in lattice.edges]
 
     # Open-boundary physics objects: only complete stars/triangles are kept.
+    # The Anyon selector builds single-colour e strings on the dual graph of
+    # complete same-colour stars (each eligible Z qubit joins two such stars).
     star_data = _detect_complete_stars(lattice)
     triangle_data = _detect_complete_triangles(lattice)
 
@@ -295,6 +297,7 @@ def build_interactive_lattice_html(lattice) -> str:
             "x": float(site.x),
             "y": float(site.y),
             "color": _site_color(site),
+            "colorName": str(site.color),
         }
         for site in sites
     ]
@@ -340,6 +343,27 @@ def build_interactive_lattice_html(lattice) -> str:
       font-weight: 700;
       font-size: 14px;
       margin-right: 4px;
+    }
+
+    .anyon-toolbar {
+      margin-bottom: 12px;
+    }
+
+    .anyon-selector {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 7px 10px;
+      min-width: 186px;
+      background: #ffffff;
+      color: #111827;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .anyon-hint {
+      color: #64748b;
+      font-size: 12px;
     }
 
     .visibility-toolbar {
@@ -514,6 +538,17 @@ def build_interactive_lattice_html(lattice) -> str:
 </head>
 <body>
   <div class="wrapper">
+    <div class="toolbar anyon-toolbar">
+      <span class="toolbar-label">Anyon</span>
+      <select class="anyon-selector" id="anyon-select" aria-label="Choose an anyon to construct">
+        <option value="">Select an anyon…</option>
+        <option value="Red">e_R</option>
+        <option value="Blue">e_B</option>
+        <option value="Green">e_G</option>
+      </select>
+      <span class="anyon-hint">Click a highlighted qubit to start or extend its Z-string.</span>
+    </div>
+
     <div class="toolbar">
       <span class="toolbar-label">Operator</span>
 
@@ -602,6 +637,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
     const plotDiv = document.getElementById("plot");
     const statusDiv = document.getElementById("status");
+    const anyonSelect = document.getElementById("anyon-select");
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
     const visibilityButtons = Array.from(document.querySelectorAll(".visibility-btn"));
     const violationButtons = Array.from(document.querySelectorAll(".violation-btn"));
@@ -626,6 +662,26 @@ def build_interactive_lattice_html(lattice) -> str:
     let pendingCZ = null;       // first endpoint for CZ selection
     let history = [];           // array of { state, description }
     let panMode = false;
+
+    // Single-colour electric anyon path. The first Z flips exactly two
+    // complete same-colour stars. Subsequent Z qubits share the *moving*
+    // star with the preceding segment; intermediate stars are flipped twice.
+    let anyonColor = null;     // "Red", "Blue", "Green", or null
+    let anyonQubits = [];      // selected physical Z qubits, in path order
+    let anyonStarPath = [];    // star IDs along the oriented dual-lattice path;
+                               // empty before the second segment fixes direction
+
+    // A physical qubit carries one colour of e anyon and belongs to zero,
+    // one, or two complete stars of that colour in an open-boundary patch.
+    const eStarIncidence = new Map();
+    for (const star of starData) {
+      for (const siteId of star.x_qubits) {
+        if (!eStarIncidence.has(siteId)) {
+          eStarIncidence.set(siteId, []);
+        }
+        eStarIncidence.get(siteId).push(star.id);
+      }
+    }
 
     // Display-only visibility state. Turning one of these off does not
     // remove the operator from the lattice state or tracked-qubit table.
@@ -855,6 +911,9 @@ def build_interactive_lattice_html(lattice) -> str:
         czPairs: czPairs.map(([a, b]) => [a, b]),
         pendingCZ: pendingCZ,
         currentMode: currentMode,
+        anyonColor: anyonColor,
+        anyonQubits: [...anyonQubits],
+        anyonStarPath: [...anyonStarPath],
         operationLog: operationLog.map(event => ({
           id: event.id,
           type: event.type,
@@ -869,6 +928,10 @@ def build_interactive_lattice_html(lattice) -> str:
       czPairs = state.czPairs.map(([a, b]) => [a, b]);
       pendingCZ = state.pendingCZ;
       currentMode = state.currentMode;
+      anyonColor = state.anyonColor || null;
+      anyonQubits = [...(state.anyonQubits || [])];
+      anyonStarPath = [...(state.anyonStarPath || [])];
+      anyonSelect.value = anyonColor || "";
       operationLog = state.operationLog.map(event => ({
         id: event.id,
         type: event.type,
@@ -885,6 +948,131 @@ def build_interactive_lattice_html(lattice) -> str:
         state: snapshot(),
         description: description,
       });
+    }
+
+    // ---------------------------------------------------------------
+    // Single-colour e-anyon Z-string guidance on the star dual graph.
+    // ---------------------------------------------------------------
+    function anyonName() {
+      return { Red: "e_R", Blue: "e_B", Green: "e_G" }[anyonColor] || "e";
+    }
+
+    function completeEStarEnds(siteId) {
+      const site = siteById.get(siteId);
+      if (!site || site.colorName !== anyonColor) {
+        return [];
+      }
+      return eStarIncidence.get(siteId) || [];
+    }
+
+    function availableAnyonQubits() {
+      if (!anyonColor) {
+        return [];
+      }
+      const isAvailable = (site) => (
+        site.colorName === anyonColor &&
+        !localOps.has(site.id) &&
+        !anyonQubits.includes(site.id) &&
+        completeEStarEnds(site.id).length === 2
+      );
+      const candidates = siteData.filter(isAvailable);
+
+      if (anyonQubits.length === 0) {
+        return candidates.map(site => site.id);
+      }
+
+      // A new Z on an edge incident to either excited star can move either
+      // member of the initial e pair. Once a second edge is chosen, the
+      // stationary endpoint is fixed and only the moving endpoint advances.
+      if (anyonQubits.length === 1) {
+        const initialStars = new Set(completeEStarEnds(anyonQubits[0]));
+        return candidates
+          .filter(site => {
+            const ends = completeEStarEnds(site.id);
+            return ends.filter(id => initialStars.has(id)).length === 1;
+          })
+          .map(site => site.id);
+      }
+
+      const movingStar = anyonStarPath[anyonStarPath.length - 1];
+      const visitedStars = new Set(anyonStarPath);
+      return candidates
+        .filter(site => {
+          const ends = completeEStarEnds(site.id);
+          if (!ends.includes(movingStar)) return false;
+          const other = ends.find(id => id !== movingStar);
+          return other !== undefined && !visitedStars.has(other);
+        })
+        .map(site => site.id);
+    }
+
+    function clearAnyonGuidance() {
+      anyonColor = null;
+      anyonQubits = [];
+      anyonStarPath = [];
+      anyonSelect.value = "";
+    }
+
+    function setAnyon(color) {
+      // Switching anyon types only resets the guide: it does not erase any
+      // previously placed Z gates or clear tracked operations.
+      anyonColor = color || null;
+      anyonQubits = [];
+      anyonStarPath = [];
+      pendingCZ = null;
+      if (panMode) {
+        setPanMode(false);
+      }
+      currentMode = anyonColor ? "ANYON" : "Z";
+      updateActiveModeButtons();
+      render();
+      const options = availableAnyonQubits();
+      if (anyonColor) {
+        setStatus(options.length
+          ? `${anyonName()}: click any highlighted ${anyonColor.toLowerCase()} qubit to place the starting Z. Only complete interior stars are used.`
+          : `${anyonName()}: no available start qubits connecting two complete ${anyonColor.toLowerCase()} stars.`);
+      } else {
+        setStatus("Anyon guide off. Mode: Z.");
+      }
+    }
+
+    function handleAnyonQubit(siteId) {
+      const options = new Set(availableAnyonQubits());
+      if (!options.has(siteId)) {
+        setStatus(`${anyonName()}: qubit ${siteId} is not a valid next step. Choose a highlighted qubit.`);
+        return;
+      }
+
+      const newEnds = completeEStarEnds(siteId);
+      const isStart = anyonQubits.length === 0;
+      const oldTail = anyonQubits[anyonQubits.length - 1];
+
+      // Store the previous path *before* adding the Z, so Undo restores the
+      // guide and the actual Hamiltonian state together.
+      pushHistory(isStart
+        ? `starting ${anyonName()} at qubit ${siteId}`
+        : `extending ${anyonName()} to qubit ${siteId}`);
+
+      if (anyonQubits.length === 1) {
+        const prevEnds = completeEStarEnds(oldTail);
+        const shared = prevEnds.find(id => newEnds.includes(id));
+        const stationary = prevEnds.find(id => id !== shared);
+        const newMoving = newEnds.find(id => id !== shared);
+        anyonStarPath = [stationary, shared, newMoving];
+      } else if (anyonQubits.length >= 2) {
+        const moving = anyonStarPath[anyonStarPath.length - 1];
+        const nextStar = newEnds.find(id => id !== moving);
+        anyonStarPath.push(nextStar);
+      }
+
+      anyonQubits.push(siteId);
+      localOps.set(siteId, "Z");
+      recordOperation("Z", [siteId]);
+      render();
+
+      const next = availableAnyonQubits();
+      const pathText = anyonQubits.join(" → ");
+      setStatus(`${anyonName()} Z-string: ${pathText}. ${next.length} highlighted next qubit${next.length === 1 ? "" : "s"}. ${next.length ? "Click one to extend the path." : "No further interior extensions; use Undo, Clear, or choose an anyon to restart."}`);
     }
 
     function updateActiveModeButtons() {
@@ -1417,6 +1605,9 @@ def build_interactive_lattice_html(lattice) -> str:
 
       const cz = buildCZGeometry();
       const opLabels = buildOpLabels();
+      const nextAnyonQubits = availableAnyonQubits();
+      const nextAnyonSet = new Set(nextAnyonQubits);
+      const usedAnyonSet = new Set(anyonQubits);
 
       const edgeTrace = {
         type: "scatter",
@@ -1462,6 +1653,7 @@ def build_interactive_lattice_html(lattice) -> str:
       };
 
       const nodeTrace = {
+        name: "qubit-nodes",
         type: "scatter",
         mode: "markers",
         x: siteData.map(s => s.x),
@@ -1470,6 +1662,9 @@ def build_interactive_lattice_html(lattice) -> str:
         marker: {
           size: 14,
           color: siteData.map(s => s.color),
+          opacity: siteData.map(s => (
+            !anyonColor || nextAnyonSet.has(s.id) || usedAnyonSet.has(s.id) ? 1 : 0.3
+          )),
           line: {
             width: 1.1,
             color: "#111827",
@@ -1480,6 +1675,7 @@ def build_interactive_lattice_html(lattice) -> str:
       };
 
       const opLabelTrace = {
+          name: "operator-labels",
           type: "scatter",
           mode: "text",
 
@@ -1502,6 +1698,7 @@ def build_interactive_lattice_html(lattice) -> str:
     };
 
       const pendingTrace = pendingCZ === null ? null : {
+        name: "pending-cz",
         type: "scatter",
         mode: "markers",
         x: [siteById.get(pendingCZ).x],
@@ -1519,6 +1716,40 @@ def build_interactive_lattice_html(lattice) -> str:
         showlegend: false,
       };
 
+      // Completed e-string qubits are outlined teal. Only the next valid
+      // same-colour steps receive gold halos; all other sites are dimmed.
+      const anyonPathTrace = !anyonColor || anyonQubits.length === 0 ? null : {
+        name: "anyon-path",
+        type: "scatter",
+        mode: "markers",
+        x: anyonQubits.map(id => siteById.get(id).x),
+        y: anyonQubits.map(id => siteById.get(id).y),
+        customdata: [...anyonQubits],
+        marker: {
+          size: 25,
+          color: "rgba(13,148,136,0.10)",
+          line: { color: "#0f766e", width: 3 },
+        },
+        hovertemplate: "<b>Qubit %{customdata}</b><br>e-string (already selected)<extra></extra>",
+        showlegend: false,
+      };
+
+      const anyonNextTrace = !anyonColor ? null : {
+        name: "anyon-next",
+        type: "scatter",
+        mode: "markers",
+        x: nextAnyonQubits.map(id => siteById.get(id).x),
+        y: nextAnyonQubits.map(id => siteById.get(id).y),
+        customdata: [...nextAnyonQubits],
+        marker: {
+          size: 27,
+          color: "rgba(251,191,36,0.18)",
+          line: { color: "#d97706", width: 3 },
+        },
+        hovertemplate: "<b>Qubit %{customdata}</b><br>Available next e-anyon step<extra></extra>",
+        showlegend: false,
+      };
+
       const traces = [
         edgeTrace,
         czLineTrace,
@@ -1529,6 +1760,12 @@ def build_interactive_lattice_html(lattice) -> str:
 
       if (pendingTrace !== null) {
         traces.push(pendingTrace);
+      }
+      if (anyonPathTrace !== null) {
+        traces.push(anyonPathTrace);
+      }
+      if (anyonNextTrace !== null) {
+        traces.push(anyonNextTrace);
       }
 
       const layout = {
@@ -1715,7 +1952,7 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function handleClear() {
-      if (localOps.size === 0 && czPairs.length === 0 && pendingCZ === null) {
+      if (localOps.size === 0 && czPairs.length === 0 && pendingCZ === null && anyonQubits.length === 0) {
         setStatus("Nothing to clear.");
         return;
       }
@@ -1727,6 +1964,8 @@ def build_interactive_lattice_html(lattice) -> str:
       pendingCZ = null;
       operationLog = [];
       nextOperationId = 1;
+      anyonQubits = [];
+      anyonStarPath = [];
 
       render();
       setStatus("Cleared all operations.");
@@ -1756,6 +1995,10 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function handleSiteClick(siteId) {
+      if (anyonColor) {
+        handleAnyonQubit(siteId);
+        return;
+      }
       if (currentMode === "Z") {
         handleLocalOp(siteId, "Z");
       } else if (currentMode === "X") {
@@ -1767,6 +2010,10 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
 
+    anyonSelect.addEventListener("change", () => {
+      setAnyon(anyonSelect.value);
+    });
+
     // Mode button events
     for (const btn of modeButtons) {
       btn.addEventListener("click", () => {
@@ -1776,9 +2023,15 @@ def build_interactive_lattice_html(lattice) -> str:
           setPanMode(false);
         }
 
+        // Ordinary operator tools exit Anyon mode, without changing
+        // any of the Z operators already applied by the anyon guide.
+        if (anyonColor) {
+          clearAnyonGuidance();
+        }
         currentMode = btn.dataset.mode;
 
         updateActiveModeButtons();
+        render();
 
         if (currentMode === "CZ") {
           setStatus(
@@ -1888,15 +2141,18 @@ def build_interactive_lattice_html(lattice) -> str:
       }
 
       const point = eventData.points[0];
-      const curveNumber = point.curveNumber;
 
-      // Clicks are accepted on:
-      // 3 = node markers
-      // 4 = local operator text
-      // 5 = pending marker (if present)
-      const clickableCurveNumbers = new Set([3, 4, 5]);
+      // Named traces avoid fragile curve-index dependencies as overlays
+      // (violation markers, anyon highlights) are added or removed.
+      const traceName = (point.data && point.data.name)
+        || (point.fullData && point.fullData.name)
+        || "";
+      const clickableTraceNames = new Set([
+        "qubit-nodes", "operator-labels", "pending-cz",
+        "anyon-path", "anyon-next",
+      ]);
 
-      if (!clickableCurveNumbers.has(curveNumber)) {
+      if (!clickableTraceNames.has(traceName)) {
         return;
       }
 
