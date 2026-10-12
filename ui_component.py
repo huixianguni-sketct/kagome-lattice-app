@@ -286,8 +286,10 @@ def build_interactive_lattice_html(lattice) -> str:
     edge_pairs = [(int(i), int(j)) for i, j in lattice.edges]
 
     # Open-boundary physics objects: only complete stars/triangles are kept.
-    # The Anyon selector builds single-colour e strings on the dual graph of
-    # complete same-colour stars (each eligible Z qubit joins two such stars).
+    # Guided electric strings use complete same-colour star dual edges.
+    # Guided magnetic strings use the graph of complete monochromatic Bt
+    # triangles: an eligible X qubit joins two of those triangles. Both
+    # guides respect the requested open-boundary convention.
     star_data = _detect_complete_stars(lattice)
     triangle_data = _detect_complete_triangles(lattice)
 
@@ -364,6 +366,13 @@ def build_interactive_lattice_html(lattice) -> str:
     .anyon-hint {
       color: #64748b;
       font-size: 12px;
+    }
+
+    .anyon-summary {
+      color: #0f766e;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
     }
 
     .visibility-toolbar {
@@ -542,11 +551,15 @@ def build_interactive_lattice_html(lattice) -> str:
       <span class="toolbar-label">Anyon</span>
       <select class="anyon-selector" id="anyon-select" aria-label="Choose an anyon to construct">
         <option value="">Select an anyon…</option>
-        <option value="Red">e_R</option>
-        <option value="Blue">e_B</option>
-        <option value="Green">e_G</option>
+        <option value="e_R">e_R</option>
+        <option value="e_B">e_B</option>
+        <option value="e_G">e_G</option>
+        <option value="m_R">m_R</option>
+        <option value="m_B">m_B</option>
+        <option value="m_G">m_G</option>
       </select>
-      <span class="anyon-hint">Click a highlighted qubit to start or extend its Z-string.</span>
+      <span class="anyon-hint" id="anyon-hint">Choose an anyon, then click a highlighted qubit.</span>
+      <span class="anyon-summary" id="anyon-summary"></span>
     </div>
 
     <div class="toolbar">
@@ -638,6 +651,8 @@ def build_interactive_lattice_html(lattice) -> str:
     const plotDiv = document.getElementById("plot");
     const statusDiv = document.getElementById("status");
     const anyonSelect = document.getElementById("anyon-select");
+    const anyonHint = document.getElementById("anyon-hint");
+    const anyonSummary = document.getElementById("anyon-summary");
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
     const visibilityButtons = Array.from(document.querySelectorAll(".visibility-btn"));
     const violationButtons = Array.from(document.querySelectorAll(".violation-btn"));
@@ -663,13 +678,19 @@ def build_interactive_lattice_html(lattice) -> str:
     let history = [];           // array of { state, description }
     let panMode = false;
 
-    // Single-colour electric anyon path. The first Z flips exactly two
-    // complete same-colour stars. Subsequent Z qubits share the *moving*
-    // star with the preceding segment; intermediate stars are flipped twice.
+    // Guided Anyon mode: electric paths (Z) or magnetic paths (X + automatic CZ).
+    // The magnetic circuit is *recompiled* after every chosen X, with all its
+    // CZ gates chronologically before all its X gates. The mathematical
+    // operator is therefore (product X) (product CZ), as requested.
+    let anyonKind = null;      // "e" or "m"; null disables guide
     let anyonColor = null;     // "Red", "Blue", "Green", or null
-    let anyonQubits = [];      // selected physical Z qubits, in path order
-    let anyonStarPath = [];    // star IDs along the oriented dual-lattice path;
-                               // empty before the second segment fixes direction
+    let anyonQubits = [];      // selected Z or X physical qubits
+    let anyonStarPath = [];    // oriented e-star path (after 2nd Z)
+    let mTrianglePath = [];    // oriented monochromatic triangle path
+    let mAutoCZ = [];         // automatic CZ pairs in current m ribbon
+    let mOptionCache = null;  // computed options for the current m path
+    let mGuideId = null;      // unique ID for the current m guide session
+    let nextMGuideId = 1;
 
     // A physical qubit carries one colour of e anyon and belongs to zero,
     // one, or two complete stars of that colour in an open-boundary patch.
@@ -680,6 +701,24 @@ def build_interactive_lattice_html(lattice) -> str:
           eStarIncidence.set(siteId, []);
         }
         eStarIncidence.get(siteId).push(star.id);
+      }
+    }
+
+    // Triangle incidence and the corresponding complete encompassing star.
+    // An incomplete star/triangle is not eligible for guided m construction.
+    const triangleById = new Map(triangleData.map(t => [t.id, t]));
+    const starById = new Map(starData.map(s => [s.id, s]));
+    const centerKey = (point) => `${point[0].toFixed(6)}:${point[1].toFixed(6)}`;
+    const starByCenter = new Map(starData.map(s => [centerKey(s.center), s.id]));
+    const starForTriangle = new Map();
+    const mTriangleIncidence = new Map();
+    for (const triangle of triangleData) {
+      const starId = starByCenter.get(centerKey(triangle.center));
+      if (starId === undefined) continue;
+      starForTriangle.set(triangle.id, starId);
+      for (const id of triangle.qubits) {
+        if (!mTriangleIncidence.has(id)) mTriangleIncidence.set(id, []);
+        mTriangleIncidence.get(id).push(triangle.id);
       }
     }
 
@@ -846,11 +885,13 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
 
-    function recordOperation(type, qubits) {
+    function recordOperation(type, qubits, source = "manual", guideId = null) {
       operationLog.push({
         id: nextOperationId++,
         type: type,
         qubits: [...qubits],
+        source: source,
+        guideId: guideId,
       });
     }
 
@@ -911,13 +952,20 @@ def build_interactive_lattice_html(lattice) -> str:
         czPairs: czPairs.map(([a, b]) => [a, b]),
         pendingCZ: pendingCZ,
         currentMode: currentMode,
+        anyonKind: anyonKind,
         anyonColor: anyonColor,
         anyonQubits: [...anyonQubits],
         anyonStarPath: [...anyonStarPath],
+        mTrianglePath: [...mTrianglePath],
+        mAutoCZ: mAutoCZ.map(pair => [...pair]),
+        mGuideId: mGuideId,
+        nextMGuideId: nextMGuideId,
         operationLog: operationLog.map(event => ({
           id: event.id,
           type: event.type,
           qubits: [...event.qubits],
+          source: event.source || "manual",
+          guideId: event.guideId ?? null,
         })),
         nextOperationId: nextOperationId,
       };
@@ -928,16 +976,27 @@ def build_interactive_lattice_html(lattice) -> str:
       czPairs = state.czPairs.map(([a, b]) => [a, b]);
       pendingCZ = state.pendingCZ;
       currentMode = state.currentMode;
+      anyonKind = state.anyonKind || null;
       anyonColor = state.anyonColor || null;
       anyonQubits = [...(state.anyonQubits || [])];
       anyonStarPath = [...(state.anyonStarPath || [])];
-      anyonSelect.value = anyonColor || "";
+      mTrianglePath = [...(state.mTrianglePath || [])];
+      mAutoCZ = (state.mAutoCZ || []).map(pair => [...pair]);
+      mGuideId = state.mGuideId ?? null;
+      nextMGuideId = state.nextMGuideId ?? nextMGuideId;
+      mOptionCache = null;
+      anyonSelect.value = anyonKind && anyonColor
+        ? `${anyonKind}_${anyonColor[0]}` : "";
       operationLog = state.operationLog.map(event => ({
         id: event.id,
         type: event.type,
         qubits: [...event.qubits],
+        source: event.source || "manual",
+        guideId: event.guideId ?? null,
       }));
       nextOperationId = state.nextOperationId;
+      mOptionCache = null;
+      updateAnyonSummary();
 
       updateActiveModeButtons();
       render();
@@ -951,24 +1010,42 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     // ---------------------------------------------------------------
-    // Single-colour e-anyon Z-string guidance on the star dual graph.
+    // Electric and magnetic string guidance, with open boundaries.
     // ---------------------------------------------------------------
     function anyonName() {
-      return { Red: "e_R", Blue: "e_B", Green: "e_G" }[anyonColor] || "e";
+      if (!anyonColor || !anyonKind) return "anyon";
+      return `${anyonKind}_${anyonColor[0]}`;
+    }
+
+    function currentAnyonGate() {
+      return anyonKind === "m" ? "X" : "Z";
+    }
+
+    function updateAnyonSummary() {
+      if (!anyonKind) {
+        anyonHint.textContent = "Choose an anyon, then click a highlighted qubit.";
+        anyonSummary.textContent = "";
+        return;
+      }
+      if (anyonKind === "e") {
+        anyonHint.textContent = "Choose highlighted qubits to extend the Z-string.";
+        anyonSummary.textContent = anyonQubits.length
+          ? `${anyonQubits.length} Z` : "";
+      } else {
+        anyonHint.textContent = "Choose only highlighted X qubits; CZ links are automatic.";
+        anyonSummary.textContent = anyonQubits.length
+          ? `${anyonQubits.length} X + ${mAutoCZ.length} auto CZ · gate order: CZ → X`
+          : "Gate order: CZ → X";
+      }
     }
 
     function completeEStarEnds(siteId) {
       const site = siteById.get(siteId);
-      if (!site || site.colorName !== anyonColor) {
-        return [];
-      }
+      if (!site || site.colorName !== anyonColor) return [];
       return eStarIncidence.get(siteId) || [];
     }
 
-    function availableAnyonQubits() {
-      if (!anyonColor) {
-        return [];
-      }
+    function availableEAnyonQubits() {
       const isAvailable = (site) => (
         site.colorName === anyonColor &&
         !localOps.has(site.id) &&
@@ -976,58 +1053,302 @@ def build_interactive_lattice_html(lattice) -> str:
         completeEStarEnds(site.id).length === 2
       );
       const candidates = siteData.filter(isAvailable);
-
-      if (anyonQubits.length === 0) {
-        return candidates.map(site => site.id);
-      }
-
-      // A new Z on an edge incident to either excited star can move either
-      // member of the initial e pair. Once a second edge is chosen, the
-      // stationary endpoint is fixed and only the moving endpoint advances.
+      if (!anyonQubits.length) return candidates.map(s => s.id);
       if (anyonQubits.length === 1) {
-        const initialStars = new Set(completeEStarEnds(anyonQubits[0]));
-        return candidates
-          .filter(site => {
-            const ends = completeEStarEnds(site.id);
-            return ends.filter(id => initialStars.has(id)).length === 1;
-          })
-          .map(site => site.id);
+        const starts = new Set(completeEStarEnds(anyonQubits[0]));
+        return candidates.filter(site => {
+          const ends = completeEStarEnds(site.id);
+          return ends.filter(id => starts.has(id)).length === 1;
+        }).map(s => s.id);
+      }
+      const moving = anyonStarPath[anyonStarPath.length - 1];
+      const visited = new Set(anyonStarPath);
+      return candidates.filter(site => {
+        const ends = completeEStarEnds(site.id);
+        if (!ends.includes(moving)) return false;
+        const other = ends.find(id => id !== moving);
+        return other !== undefined && !visited.has(other);
+      }).map(s => s.id);
+    }
+
+    function completeMTriangleEnds(siteId) {
+      const site = siteById.get(siteId);
+      if (!site || site.colorName !== anyonColor) return [];
+      return (mTriangleIncidence.get(siteId) || []).filter(
+        tId => triangleById.get(tId).color === anyonColor
+      );
+    }
+
+    // Canonical GF(2) reduction of Z strings modulo complete Bt triangles.
+    // It preserves the residual vector, unlike the boolean membership test.
+    function reduceTriangleMask(mask) {
+      let value = mask;
+      for (let pivot = maxQubitId; pivot >= 0; pivot--) {
+        const bit = qubitBit(pivot);
+        if ((value & bit) && triangleZBasis[pivot] !== 0n) {
+          value ^= triangleZBasis[pivot];
+        }
+      }
+      return value;
+    }
+
+    let reducedZSingle = null;
+
+    // For one single-colour X path, conjugation of an As star produces only
+    // diagonal Z residues. All selected X qubits have the same colour, so
+    // adjacent Xs never appear on the alternating-colour inner ring of one
+    // star and no bare-X sign is generated. Cross-colour CZs do not generate
+    // a sign either. We solve for CZs that eliminate all bulk Z residues
+    // modulo Bt (not by the erroneous literal requirement Z(mask) === I).
+    let mSingleXStarChanges = null;  // filled after triangle basis initialization
+
+    function mStarResiduals(xQubits, czEdges) {
+      const res = new Map(starData.map(s => [s.id, 0n]));
+      for (const q of xQubits) {
+        for (const [id, reduced] of mSingleXStarChanges.get(q) || []) {
+          res.set(id, res.get(id) ^ reduced);
+        }
+      }
+      for (const [a,b] of czEdges) {
+        for (const id of eStarIncidence.get(a) || []) {
+          res.set(id, res.get(id) ^ reducedZSingle.get(b));
+        }
+        for (const id of eStarIncidence.get(b) || []) {
+          res.set(id, res.get(id) ^ reducedZSingle.get(a));
+        }
+      }
+      return res;
+    }
+
+    // n=1: two terminal stars; n=2: three terminal stars (1+2).
+    // n=3: 1+1, n=4: 1+2, etc. This implements the agreed parity
+    // convention: the same CZ decoration is retained for n=2m-1 and 2m.
+    function mAllowedStarIds(xQubits, trianglePath) {
+      const selected = new Set([trianglePath[0], trianglePath[trianglePath.length-1]]);
+      if (xQubits.length > 1 && xQubits.length % 2 === 0) {
+        selected.add(trianglePath[trianglePath.length-2]);
+      }
+      return new Set(Array.from(selected, t => starForTriangle.get(t)));
+    }
+
+    function validMResidues(residuals, expectedStarIds) {
+      for (const star of starData) {
+        const nonzero = residuals.get(star.id) !== 0n;
+        if (nonzero !== expectedStarIds.has(star.id)) return false;
+      }
+      return true;
+    }
+
+    function mCandidateCZEdges(xQubits, trianglePath, currentCZ) {
+      // Candidate CZs connect the *other two colours*; both endpoints must
+      // be tips of stars along the selected triangle path. They may be
+      // non-nearest neighbours (the same upward arcs used in the paper).
+      const tips = new Set();
+      for (const tId of trianglePath.slice(1, -1)) {
+        const sId = starForTriangle.get(tId);
+        const star = starById.get(sId);
+        if (star) star.x_qubits.forEach(id => tips.add(id));
+      }
+      const sites = Array.from(tips).filter(id => {
+        const s = siteById.get(id);
+        if (s.colorName === anyonColor) return false;
+        return xQubits.some(x => {
+          const p = siteById.get(x);
+          const dx = p.x - s.x, dy = p.y - s.y;
+          return dx*dx + dy*dy <= 2.7*2.7;
+        });
+      });
+      const colours = ["Red", "Green", "Blue"].filter(c => c !== anyonColor);
+      const left = sites.filter(id => siteById.get(id).colorName === colours[0]);
+      const right = sites.filter(id => siteById.get(id).colorName === colours[1]);
+      const occupied = new Set([
+        ...currentCZ.map(pair => pairKey(...pair)),
+        ...czPairs.filter(pair => !mAutoCZ.some(m => pairKey(...m) === pairKey(...pair)))
+                 .map(pair => pairKey(...pair)),
+      ]);
+      const edges = [];
+      for (const a of left) {
+        for (const b of right) {
+          if (occupied.has(pairKey(a,b))) continue;
+          const sa = siteById.get(a), sb = siteById.get(b);
+          const dist = Math.hypot(sa.x - sb.x, sa.y - sb.y);
+          edges.push({pair:[a,b],dist});
+        }
+      }
+      edges.sort((a,b) => a.dist - b.dist || a.pair[0]-b.pair[0] || a.pair[1]-b.pair[1]);
+      return edges;
+    }
+
+    function mNewTrianglePath(newQubit) {
+      const ends = completeMTriangleEnds(newQubit);
+      if (ends.length !== 2 || anyonQubits.includes(newQubit)) return null;
+      if (!anyonQubits.length) return [...ends];
+      if (anyonQubits.length === 1) {
+        const firstEnds = completeMTriangleEnds(anyonQubits[0]);
+        const shared = ends.filter(id => firstEnds.includes(id));
+        if (shared.length !== 1) return null;
+        const stationary = firstEnds.find(id => id !== shared[0]);
+        const moving = ends.find(id => id !== shared[0]);
+        return [stationary,shared[0],moving];
+      }
+      const last = mTrianglePath[mTrianglePath.length-1];
+      if (!ends.includes(last)) return null;
+      const moving = ends.find(id => id !== last);
+      if (mTrianglePath.includes(moving)) return null;
+      return [...mTrianglePath,moving];
+    }
+
+    function findMDecoration(xs, ts) {
+      const previous = mAutoCZ.map(pair => [...pair]);
+      const expected = mAllowedStarIds(xs,ts);
+      const current = mStarResiduals(xs,previous);
+      if (validMResidues(current,expected)) return previous;
+      // Every even X-count extends by X alone. No CZ rearrangements.
+      if (xs.length % 2 === 0) return null;
+
+      // A successful odd-number extension repairs *two* intermediate stars.
+      // The normal straight ribbon needs 1,2,3,... new CZs at odd steps
+      // n=3,5,7,...; turns may admit fewer. Search only valid solutions.
+      const budget = Math.floor((xs.length-1)/2);
+      const otherStars = starData.filter(st => !expected.has(st.id));
+      const shift = new Map(otherStars.map((s,i) => [s.id, BigInt(i * (maxQubitId + 1))]));
+      let target = 0n;
+      for (const s of otherStars) target ^= current.get(s.id) << shift.get(s.id);
+      if (target === 0n) return null;
+
+      const candidates = mCandidateCZEdges(xs,ts,previous);
+      const columns = [];
+      const dict = new Map();
+      for (const candidate of candidates) {
+        const [a,b] = candidate.pair;
+        let column = 0n;
+        for (const sId of eStarIncidence.get(a) || []) {
+          const pos = shift.get(sId);
+          if (pos !== undefined) column ^= reducedZSingle.get(b) << pos;
+        }
+        for (const sId of eStarIncidence.get(b) || []) {
+          const pos = shift.get(sId);
+          if (pos !== undefined) column ^= reducedZSingle.get(a) << pos;
+        }
+        if (column === 0n) continue;
+        columns.push({...candidate, column});
+        if (!dict.has(column)) dict.set(column, []);
+        dict.get(column).push(columns.length - 1);
       }
 
-      const movingStar = anyonStarPath[anyonStarPath.length - 1];
-      const visitedStars = new Set(anyonStarPath);
-      return candidates
-        .filter(site => {
-          const ends = completeEStarEnds(site.id);
-          if (!ends.includes(movingStar)) return false;
-          const other = ends.find(id => id !== movingStar);
-          return other !== undefined && !visitedStars.has(other);
-        })
-        .map(site => site.id);
+      const verify = (indexes) => {
+        const add = indexes.map(i => columns[i].pair);
+        const cz = [...previous,...add];
+        return validMResidues(mStarResiduals(xs,cz),expected) ? cz : null;
+      };
+
+      if (budget >= 1) {
+        for (const i of dict.get(target) || []) {
+          const found = verify([i]);
+          if (found) return found;
+        }
+      }
+      if (budget >= 2) {
+        for (let i=0;i<columns.length;i++) {
+          for (const j of dict.get(target ^ columns[i].column) || []) {
+            if (i === j) continue;
+            const found = verify([i,j]);
+            if (found) return found;
+          }
+        }
+      }
+      if (budget === 3) {
+        for (let i=0;i<columns.length;i++) {
+          for (let j=i+1;j<columns.length;j++) {
+            const missing = target ^ columns[i].column ^ columns[j].column;
+            for (const k of dict.get(missing) || []) {
+              if (k===i || k===j) continue;
+              const found = verify([i,j,k]);
+              if (found) return found;
+            }
+          }
+        }
+      }
+      // A longer ribbon may need more than four new edges. Solve the same
+      // GF(2) equations without a gate-count constraint as a fallback.
+      if (budget >= 4) {
+        const basis = new Map();
+        function pivot(x) { return x.toString(2).length-1; }
+        for (let i=0;i<columns.length;i++) {
+          let v=columns[i].column, combo=1n<<BigInt(i);
+          while (v !== 0n) {
+            const p=pivot(v), row=basis.get(p);
+            if (row) {v ^=row.vec;combo ^=row.combo;}
+            else {basis.set(p,{vec:v,combo});break;}
+          }
+        }
+        let residue=target,combo=0n;
+        while(residue!==0n) {
+          const row=basis.get(pivot(residue));
+          if (!row) break;
+          residue ^=row.vec;combo ^=row.combo;
+        }
+        if (residue===0n) {
+          const chosen=[];
+          for(let i=0;i<columns.length;i++) {
+            if (combo & (1n<<BigInt(i))) chosen.push(i);
+          }
+          const found=verify(chosen);
+          if (found)return found;
+        }
+      }
+      return null;
+    }
+
+    function availableMPlans() {
+      if (mOptionCache !== null) return mOptionCache;
+      const options = new Map();
+      for (const site of siteData) {
+        if (site.colorName !== anyonColor || localOps.has(site.id)) continue;
+        const ts = mNewTrianglePath(site.id);
+        if (!ts) continue;
+        const qs = [...anyonQubits,site.id];
+        const plan = findMDecoration(qs,ts);
+        if (plan) options.set(site.id,{triangles:ts,cz:plan});
+      }
+      mOptionCache=options;
+      return options;
+    }
+
+    function availableAnyonQubits() {
+      if (!anyonColor || !anyonKind) return [];
+      return anyonKind === "m"
+        ? [...availableMPlans().keys()]
+        : availableEAnyonQubits();
     }
 
     function clearAnyonGuidance() {
-      anyonColor = null;
-      anyonQubits = [];
-      anyonStarPath = [];
-      anyonSelect.value = "";
+      anyonKind=null;anyonColor=null;anyonQubits=[];
+      anyonStarPath=[];mTrianglePath=[];mAutoCZ=[];
+      mOptionCache=null;mGuideId=null;
+      anyonSelect.value="";
+      updateAnyonSummary();
     }
 
-    function setAnyon(color) {
-      // Switching anyon types only resets the guide: it does not erase any
-      // previously placed Z gates or clear tracked operations.
-      anyonColor = color || null;
-      anyonQubits = [];
-      anyonStarPath = [];
-      pendingCZ = null;
-      if (panMode) {
-        setPanMode(false);
-      }
-      currentMode = anyonColor ? "ANYON" : "Z";
+    function setAnyon(value) {
+      const match = /^(e|m)_([RGB])$/.exec(value);
+      anyonKind=match ? match[1]:null;
+      anyonColor=match ? ({R:"Red",G:"Green",B:"Blue"}[match[2]]):null;
+      anyonQubits=[];anyonStarPath=[];
+      mTrianglePath=[];mAutoCZ=[];mOptionCache=null;
+      mGuideId = anyonKind === "m" ? nextMGuideId++ : null;
+      pendingCZ=null;
+      if (panMode) setPanMode(false);
+      currentMode=anyonKind ? "ANYON":"Z";
       updateActiveModeButtons();
+      updateAnyonSummary();
       render();
-      const options = availableAnyonQubits();
-      if (anyonColor) {
+      const options=availableAnyonQubits();
+      if (anyonKind==="m") {
+        setStatus(options.length
+          ? `${anyonName()}: click a highlighted ${anyonColor.toLowerCase()} qubit to start the X-string. The app automatically builds the CZ-first circuit.`
+          : `${anyonName()}: no available start qubits with two complete triangles and stars.`);
+      } else if (anyonKind==="e") {
         setStatus(options.length
           ? `${anyonName()}: click any highlighted ${anyonColor.toLowerCase()} qubit to place the starting Z. Only complete interior stars are used.`
           : `${anyonName()}: no available start qubits connecting two complete ${anyonColor.toLowerCase()} stars.`);
@@ -1036,43 +1357,73 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
 
+    function handleEAnyonQubit(siteId) {
+      const newEnds=completeEStarEnds(siteId);
+      const isStart=anyonQubits.length===0;
+      const oldTail=anyonQubits[anyonQubits.length-1];
+      pushHistory(isStart
+        ? `starting ${anyonName()} at qubit ${siteId}`
+        : `extending ${anyonName()} to qubit ${siteId}`);
+      if (anyonQubits.length===1) {
+        const prevEnds=completeEStarEnds(oldTail);
+        const shared=prevEnds.find(id=>newEnds.includes(id));
+        anyonStarPath=[prevEnds.find(id=>id!==shared),shared,newEnds.find(id=>id!==shared)];
+      } else if (anyonQubits.length>=2) {
+        const moving=anyonStarPath[anyonStarPath.length-1];
+        anyonStarPath.push(newEnds.find(id=>id!==moving));
+      }
+      anyonQubits.push(siteId);
+      localOps.set(siteId,"Z");
+      recordOperation("Z",[siteId],"guided-e");
+    }
+
+    function handleMAnyonQubit(siteId) {
+      const plan=availableMPlans().get(siteId);
+      if (!plan) return;
+      pushHistory(anyonQubits.length===0
+        ? `starting ${anyonName()} at qubit ${siteId}`
+        : `extending ${anyonName()} to qubit ${siteId}`);
+
+      // Replace just the current guided-m block; previous manual/e gates
+      // are untouched. A snapshot before each click makes Undo atomic.
+      const oldPairs = new Set(mAutoCZ.map(pair => pairKey(...pair)));
+      czPairs=czPairs.filter(pair=>!oldPairs.has(pairKey(...pair)));
+      operationLog=operationLog.filter(ev=>!(ev.source==="guided-m" && ev.guideId===mGuideId));
+      for (const [a,b] of plan.cz) {
+        czPairs.push([a,b]);
+        recordOperation("CZ",[a,b],"guided-m",mGuideId);
+      }
+      anyonQubits.push(siteId);
+      mTrianglePath=[...plan.triangles];
+      mAutoCZ=plan.cz.map(pair=>[...pair]);
+      // The X operations are logged AFTER the CZs (chronological order).
+      // Accordingly U = X_n ... X_1 CZ_k ... CZ_1 as requested.
+      for (const q of anyonQubits) {
+        localOps.set(q,"X");
+        recordOperation("X",[q],"guided-m",mGuideId);
+      }
+      mOptionCache=null;
+    }
+
     function handleAnyonQubit(siteId) {
-      const options = new Set(availableAnyonQubits());
+      const options=new Set(availableAnyonQubits());
       if (!options.has(siteId)) {
         setStatus(`${anyonName()}: qubit ${siteId} is not a valid next step. Choose a highlighted qubit.`);
         return;
       }
-
-      const newEnds = completeEStarEnds(siteId);
-      const isStart = anyonQubits.length === 0;
-      const oldTail = anyonQubits[anyonQubits.length - 1];
-
-      // Store the previous path *before* adding the Z, so Undo restores the
-      // guide and the actual Hamiltonian state together.
-      pushHistory(isStart
-        ? `starting ${anyonName()} at qubit ${siteId}`
-        : `extending ${anyonName()} to qubit ${siteId}`);
-
-      if (anyonQubits.length === 1) {
-        const prevEnds = completeEStarEnds(oldTail);
-        const shared = prevEnds.find(id => newEnds.includes(id));
-        const stationary = prevEnds.find(id => id !== shared);
-        const newMoving = newEnds.find(id => id !== shared);
-        anyonStarPath = [stationary, shared, newMoving];
-      } else if (anyonQubits.length >= 2) {
-        const moving = anyonStarPath[anyonStarPath.length - 1];
-        const nextStar = newEnds.find(id => id !== moving);
-        anyonStarPath.push(nextStar);
-      }
-
-      anyonQubits.push(siteId);
-      localOps.set(siteId, "Z");
-      recordOperation("Z", [siteId]);
+      if (anyonKind==="m") handleMAnyonQubit(siteId);
+      else handleEAnyonQubit(siteId);
+      updateAnyonSummary();
       render();
-
-      const next = availableAnyonQubits();
-      const pathText = anyonQubits.join(" → ");
-      setStatus(`${anyonName()} Z-string: ${pathText}. ${next.length} highlighted next qubit${next.length === 1 ? "" : "s"}. ${next.length ? "Click one to extend the path." : "No further interior extensions; use Undo, Clear, or choose an anyon to restart."}`);
+      const next=availableAnyonQubits();
+      const pathText=anyonQubits.join(" → ");
+      if (anyonKind==="m") {
+        const n=anyonQubits.length;
+        const starCount= n%2===0 && n>1 ? 3:2;
+        setStatus(`${anyonName()} X-string: ${pathText}. ${n} X + ${mAutoCZ.length} automatic CZ. Circuit is rebuilt CZ first, then X (written X…X CZ…CZ). Expected ${starCount} endpoint-region star violations. ${next.length} valid next X qubit${next.length===1?"":"s"}.`);
+      } else {
+        setStatus(`${anyonName()} Z-string: ${pathText}. ${next.length} highlighted next qubit${next.length===1?"":"s"}. ${next.length?"Click one to extend the path.":"No further interior extensions; use Undo, Clear, or choose an anyon to restart."}`);
+      }
     }
 
     function updateActiveModeButtons() {
@@ -1165,6 +1516,17 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     const triangleZBasis = buildTriangleZBasis();
+    reducedZSingle = new Map(
+      siteData.map(s => [s.id, reduceTriangleMask(qubitBit(s.id))])
+    );
+    mSingleXStarChanges = new Map(siteData.map(s => [s.id, []]));
+    for (const star of starData) {
+      const ring = star.inner_qubits;
+      for (let i = 0; i < ring.length; i++) {
+        const mask = qubitBit(ring[(i+5)%6]) ^ qubitBit(ring[(i+1)%6]);
+        mSingleXStarChanges.get(ring[i]).push([star.id,reduceTriangleMask(mask)]);
+      }
+    }
 
     function isTriangleStabilizerMask(mask) {
       let value = mask;
@@ -1606,6 +1968,7 @@ def build_interactive_lattice_html(lattice) -> str:
       const cz = buildCZGeometry();
       const opLabels = buildOpLabels();
       const nextAnyonQubits = availableAnyonQubits();
+      updateAnyonSummary();
       const nextAnyonSet = new Set(nextAnyonQubits);
       const usedAnyonSet = new Set(anyonQubits);
 
@@ -1716,8 +2079,8 @@ def build_interactive_lattice_html(lattice) -> str:
         showlegend: false,
       };
 
-      // Completed e-string qubits are outlined teal. Only the next valid
-      // same-colour steps receive gold halos; all other sites are dimmed.
+      // Completed guided Z/X string qubits are outlined teal. Valid next
+      // qubits receive gold halos; non-options are dimmed.
       const anyonPathTrace = !anyonColor || anyonQubits.length === 0 ? null : {
         name: "anyon-path",
         type: "scatter",
@@ -1730,7 +2093,7 @@ def build_interactive_lattice_html(lattice) -> str:
           color: "rgba(13,148,136,0.10)",
           line: { color: "#0f766e", width: 3 },
         },
-        hovertemplate: "<b>Qubit %{customdata}</b><br>e-string (already selected)<extra></extra>",
+        hovertemplate: `<b>Qubit %{customdata}</b><br>${currentAnyonGate()}-string (already selected)<extra></extra>`,
         showlegend: false,
       };
 
@@ -1746,7 +2109,7 @@ def build_interactive_lattice_html(lattice) -> str:
           color: "rgba(251,191,36,0.18)",
           line: { color: "#d97706", width: 3 },
         },
-        hovertemplate: "<b>Qubit %{customdata}</b><br>Available next e-anyon step<extra></extra>",
+        hovertemplate: `<b>Qubit %{customdata}</b><br>Available next ${anyonName()} step<extra></extra>`,
         showlegend: false,
       };
 
@@ -1932,6 +2295,14 @@ def build_interactive_lattice_html(lattice) -> str:
         pendingCZ = null;
       }
 
+      // Erase invalidates any actively guided path; the old m-specific
+      // block must not be rebuilt after some of its gates have been erased.
+      if (anyonKind) {
+        clearAnyonGuidance();
+        currentMode = "ERASE";
+        updateActiveModeButtons();
+      }
+
       // Erasing a qubit removes every tracked operation involving it.
       // For CZ this removes the same two-qubit gate from both endpoints' rows.
       operationLog = operationLog.filter(event => !event.qubits.includes(siteId));
@@ -1966,6 +2337,10 @@ def build_interactive_lattice_html(lattice) -> str:
       nextOperationId = 1;
       anyonQubits = [];
       anyonStarPath = [];
+      mTrianglePath = [];
+      mAutoCZ = [];
+      mOptionCache = null;
+      mGuideId = anyonKind === "m" ? nextMGuideId++ : null;
 
       render();
       setStatus("Cleared all operations.");
@@ -1995,7 +2370,7 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function handleSiteClick(siteId) {
-      if (anyonColor) {
+      if (anyonKind) {
         handleAnyonQubit(siteId);
         return;
       }
@@ -2023,9 +2398,9 @@ def build_interactive_lattice_html(lattice) -> str:
           setPanMode(false);
         }
 
-        // Ordinary operator tools exit Anyon mode, without changing
-        // any of the Z operators already applied by the anyon guide.
-        if (anyonColor) {
+        // Ordinary tools exit Anyon mode, without changing any Z, X, or
+        // automatically generated CZ gates already placed by the guide.
+        if (anyonKind) {
           clearAnyonGuidance();
         }
         currentMode = btn.dataset.mode;
