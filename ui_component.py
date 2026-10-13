@@ -580,8 +580,8 @@ def build_interactive_lattice_html(lattice) -> str:
         <option value="m_R">m_R</option>
         <option value="m_B">m_B</option>
         <option value="m_G">m_G</option>
-        <option value="s1">s1 (straight three-color)</option>
-        <option value="s2">s2 (mirror straight three-color)</option>
+        <option value="s1">s1 (straight: horizontal / diagonal)</option>
+        <option value="s2">s2 (mirror: horizontal / diagonal)</option>
       </select>
       <span class="anyon-hint" id="anyon-hint">Choose an anyon, then click a highlighted qubit.</span>
       <span class="anyon-summary" id="anyon-summary"></span>
@@ -735,7 +735,7 @@ def build_interactive_lattice_html(lattice) -> str:
     let mOptionCache = null;  // computed options for the current m path
     let mGuideId = null;      // unique ID for the current m guide session
     let nextMGuideId = 1;
-    let sBasePath = [];       // clicked horizontal spine qubits, ordered
+    let sBasePath = [];       // clicked straight-line spine qubits, ordered
     let sGuidedX = [];        // all physical X qubits, including triangle tips
     let sAutoCZ = [];         // compiled three-colour magnetic decorations
     let sGuideId = null;
@@ -1091,6 +1091,14 @@ def build_interactive_lattice_html(lattice) -> str:
       return anyonKind === "m" ? "X" : (anyonKind === "e" ? "Z" : "XR/RX");
     }
 
+    function sDirectionLabel() {
+      if (sBasePath.length < 2) return "choose horizontal or diagonal";
+      const [dx,dy]=sStepVector(sBasePath[0],sBasePath[1]);
+      if (Math.abs(dy)<1e-5) return "horizontal";
+      // Direction is described left-to-right regardless of click order.
+      return dx*dy > 0 ? "diagonal rising right" : "diagonal falling right";
+    }
+
     function updateAnyonSummary() {
       if (!anyonKind) {
         anyonHint.textContent = "Choose an anyon, then click a highlighted qubit.";
@@ -1098,10 +1106,10 @@ def build_interactive_lattice_html(lattice) -> str:
         return;
       }
       if (anyonKind === "s1" || anyonKind === "s2") {
-        anyonHint.textContent = "Select a start, then extend along one straight horizontal line. Triangle tips and three-colour CZ dressing are automatic.";
+        anyonHint.textContent = "Select a start, then choose a horizontal or diagonal direction. Keep extending straight; up/down triangle XR/RX order is read left-to-right. Tips and CZs are automatic.";
         anyonSummary.textContent = sBasePath.length < 2
           ? (sBasePath.length ? "Select direction from the highlighted neighbors" : "Up/down triangles: mirrored XR ↔ RX")
-          : `${sBasePath.length} spine · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ · gate order: CZ → X/R`;
+          : `${sBasePath.length} spine · ${sDirectionLabel()} · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ · gate order: CZ → X/R`;
       } else if (anyonKind === "e") {
         anyonHint.textContent = "Choose highlighted qubits to extend the Z-string.";
         anyonSummary.textContent = anyonQubits.length
@@ -1392,63 +1400,92 @@ def build_interactive_lattice_html(lattice) -> str:
 
     // ------------------------------------------------------------------
     // Three-colour straight ribbons (s1 / s2).
-    // Each horizontal Kagome bond belongs to one elementary triangle.
-    // For an upward triangle s1 uses XR on its left base and RX on its
-    // right; downward reverses these; s2 reverses s1 everywhere.
-    // XR and RX denote the mathematical order (rightmost acts first).
-    // The apex of each triangle carries X only. R=exp(+i*pi*Z/4).
+    // Accept a horizontal spine, or either 60-degree diagonal line.
+    // Every selected Kagome edge belongs to one small triangle. Its
+    // UP/DOWN orientation is determined geometrically from its horizontal
+    // side (not from the apex relative to the selected DIAGONAL edge).
+    // The left and right base sites are sorted by global x coordinate,
+    // independent of click direction. s1 uses XR(left),RX(right) on UP
+    // triangles and RX(left),XR(right) on DOWN triangles. s2 swaps them.
+    // The third triangle vertex always carries X only. All CZ gates
+    // remain a jointly optimized three-colour decoration applied first.
     // ------------------------------------------------------------------
-    const sHorizontalNeighbors = new Map();
+    const sStraightNeighbors = new Map();
     const sSiteNeighbors = new Map(siteData.map(s => [s.id, []]));
     for (const [a,b] of edgePairs) {
       sSiteNeighbors.get(a).push(b);
       sSiteNeighbors.get(b).push(a);
     }
+
+    // Locate the orientation of a small Kagome triangle by its horizontal
+    // side. This works for horizontal AND diagonal selected edges.
+    function sTriangleUp(vertices) {
+      let horizontal=null;
+      for (let i=0;i<3;i++) {
+        for (let j=i+1;j<3;j++) {
+          const a=siteById.get(vertices[i]), b=siteById.get(vertices[j]);
+          if (Math.abs(a.y-b.y)<1e-5) horizontal=[vertices[i],vertices[j]];
+        }
+      }
+      if (!horizontal) return null;
+      const tip=vertices.find(id=>!horizontal.includes(id));
+      return siteById.get(tip).y>siteById.get(horizontal[0]).y;
+    }
     for (const [a,b] of edgePairs) {
       const sa=siteById.get(a),sb=siteById.get(b);
-      if (Math.abs(sa.y-sb.y)>1e-5 || Math.abs(sa.x-sb.x)<1e-5) continue;
+      // Every Kagome nearest-neighbor bond has a nonzero x displacement,
+      // so 'left/right' is well-defined also for the two diagonal slopes.
+      if (Math.abs(sa.x-sb.x)<1e-5) continue;
       const common=sSiteNeighbors.get(a).filter(id=>sSiteNeighbors.get(b).includes(id));
       if (common.length!==1) continue;
-      const apex=common[0],sp=siteById.get(apex);
-      if (!sp || Math.abs(sp.y-sa.y)<1e-5) continue;
-      if (![a,b,apex].every(id => (mTriangleIncidence.get(id)||[]).length===2)) continue;
+      const apex=common[0];
+      if (![a,b,apex].every(id=>(mTriangleIncidence.get(id)||[]).length===2)) continue;
+      const up=sTriangleUp([a,b,apex]);
+      if (up===null) continue;
       const l=sa.x<sb.x?a:b,r=sa.x<sb.x?b:a;
-      const obj={left:l,right:r,apex,up:sp.y>sa.y};
-      sHorizontalNeighbors.set(pairKey(a,b),obj);
+      sStraightNeighbors.set(pairKey(a,b),{left:l,right:r,apex,up});
     }
 
+    function sStepVector(a,b) {
+      const u=siteById.get(a),v=siteById.get(b);
+      return [v.x-u.x,v.y-u.y];
+    }
+    function sSameVector(a,b) {
+      const u=sStepVector(a[0],a[1]),v=sStepVector(b[0],b[1]);
+      return Math.abs(u[0]-v[0])<1e-5 && Math.abs(u[1]-v[1])<1e-5;
+    }
     function availableSAnyonQubits() {
       if (!sBasePath.length) {
         const all=new Set();
-        for (const edge of sHorizontalNeighbors.values()) {all.add(edge.left);all.add(edge.right);}
-        return [...all].filter(id=>!localOps.has(id) && !operationLog.some(ev=>ev.type==='R' && ev.qubits[0]===id));
+        for (const edge of sStraightNeighbors.values()) {all.add(edge.left);all.add(edge.right);}
+        return [...all].filter(id=>!localOps.has(id)&&!operationLog.some(ev=>ev.type==='R'&&ev.qubits[0]===id));
       }
-      const last=sBasePath[sBasePath.length-1],sl=siteById.get(last);
-      let direction=0;
-      if (sBasePath.length>1) direction=Math.sign(sl.x-siteById.get(sBasePath[0]).x);
+      const last=sBasePath[sBasePath.length-1];
       return (sSiteNeighbors.get(last)||[]).filter(id=>{
-        const s=siteById.get(id);
-        if (!s || Math.abs(s.y-sl.y)>1e-5 || sBasePath.includes(id) || localOps.has(id)) return false;
-        if (direction && Math.sign(s.x-sl.x)!==direction) return false;
-        return sHorizontalNeighbors.has(pairKey(last,id));
+        if (sBasePath.includes(id) || localOps.has(id)) return false;
+        if (!sStraightNeighbors.has(pairKey(last,id))) return false;
+        // After the second click, there can be no bending or reversing.
+        if (sBasePath.length>=2 && !sSameVector(
+          [sBasePath[sBasePath.length-2],last],[last,id]
+        )) return false;
+        return true;
       });
     }
 
     function buildSSpine(base) {
-      if (base.length<2) return { xIds:[],pairs:[],gateOrder:new Map() };
+      if (base.length<2) return {xIds:[],pairs:[],gateOrder:new Map()};
       const xIds=new Set(base),gateOrder=new Map(),pairs=[];
       for (let i=0;i<base.length-1;i++) {
-        const tri=sHorizontalNeighbors.get(pairKey(base[i],base[i+1]));
+        if (i>0 && !sSameVector([base[i-1],base[i]],[base[i],base[i+1]])) return null;
+        const tri=sStraightNeighbors.get(pairKey(base[i],base[i+1]));
         if (!tri) return null;
-        // Reject occupied auxiliary triangle tips unless they belong to
-        // the current s1/s2 block being rebuilt.
         if (localOps.has(tri.apex) && !sGuidedX.includes(tri.apex)) return null;
         xIds.add(tri.apex);pairs.push(tri);
         const flip=(anyonKind==='s2');
-        const leftOrder=(tri.up!==flip)?"XR":"RX";
-        const rightOrder=leftOrder==="XR"?"RX":"XR";
+        const leftOrder=(tri.up!==flip)?'XR':'RX';
+        const rightOrder=leftOrder==='XR'?'RX':'XR';
         for (const [q,order] of [[tri.left,leftOrder],[tri.right,rightOrder]]) {
-          if (gateOrder.has(q) && gateOrder.get(q)!==order) return null;
+          if (gateOrder.has(q)&&gateOrder.get(q)!==order) return null;
           gateOrder.set(q,order);
         }
       }
@@ -1619,7 +1656,7 @@ def build_interactive_lattice_html(lattice) -> str:
     function handleSAnyonQubit(siteId) {
       const nextBase=[...sBasePath,siteId];
       const built=buildSSpine(nextBase);
-      if(!built){setStatus(`${anyonName()}: this extension cannot form a consistent alternating triangle ribbon.`);return false;}
+      if(!built){setStatus(`${anyonName()}: this extension cannot form a straight, consistently oriented alternating triangle ribbon.`);return false;}
       // The first click sets an anchor; operations begin when the first
       // triangular segment and its orientation have been chosen.
       const cz=built.xIds.length?compileSDecorations(built):[];
@@ -1688,7 +1725,7 @@ def build_interactive_lattice_html(lattice) -> str:
       render();
       const options=availableAnyonQubits();
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(options.length ? `${anyonName()}: select a highlighted start qubit, then extend horizontally. XR/RX, tip X, and all three colour CZ connections are compiled automatically.`
+        setStatus(options.length ? `${anyonName()}: select a highlighted start qubit, then extend horizontally or diagonally in one straight direction. XR/RX, tip X, and joint CZ dressing are automatic.`
           : `${anyonName()}: no interior straight Kagome line is available.`);
       } else if (anyonKind==="m") {
         setStatus(options.length
@@ -1766,7 +1803,7 @@ def build_interactive_lattice_html(lattice) -> str:
       const next=availableAnyonQubits();
       const pathText=anyonQubits.join(" → ");
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(`${anyonName()}: ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Joint three-color CZ decoration checked against all complete bulk stars; use Violation to inspect the endpoint state.`);
+        setStatus(`${anyonName()} (${sDirectionLabel()}): ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Joint three-color CZ decoration checked against all complete bulk stars; use Violation to inspect the endpoint state.`);
       } else if (anyonKind==="m") {
         const n=anyonQubits.length;
         const starCount= n%2===0 && n>1 ? 3:2;
