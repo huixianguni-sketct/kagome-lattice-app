@@ -1412,73 +1412,175 @@ def build_interactive_lattice_html(lattice) -> str:
       return {xIds:[...xIds],pairs,gateOrder};
     }
 
-    // Compose the previously tested *single-colour* magnetic decorations
-    // for all three flux subpaths. This matches the requested schematic;
-    // it does not by itself prove that the combined non-Abelian fusion
-    // ribbon has no unwanted bulk electric excitations. Keep diagnostics
-    // enabled when inspecting its physical state.
-    function getMTrianglePathForXSequence(xs,color) {
+    // Joint three-colour CZ search for s1/s2.
+    // Every CZ joins TWO X sites selected on the physical ribbon, with no
+    // distance restriction.  This differs from merely concatenating three
+    // separate single-colour m-string decorations.
+    //
+    // Exact criterion: for each non-endpoint complete star s, the ordered
+    // circuit U must obey U† A_s U = + A_s Π_t B_t.  Residual Z strings are
+    // reduced modulo the full complete-Bt span, and the overall sign is
+    // included in the GF(2) equations.  The original XR/RX phase pattern is
+    // held fixed.  A star touching an odd number of R sites is classified
+    // as an endpoint-region star and is not required to be +1.
+    function compileSDecorations(built) {
+      const xs=built.xIds;
       if (!xs.length) return [];
-      const triIds=(id)=>(mTriangleIncidence.get(id)||[]).filter(t=>triangleById.get(t)?.color===color);
-      const first=triIds(xs[0]);
-      if (first.length!==2) return null;
-      if (xs.length===1) return first;
-      const second=triIds(xs[1]);
-      const shared=first.filter(t=>second.includes(t));
-      if (shared.length!==1) return null;
-      const ts=[first.find(t=>t!==shared[0]),shared[0],second.find(t=>t!==shared[0])];
-      for (const x of xs.slice(2)) {
-        const two=triIds(x);if (!two.includes(ts[ts.length-1]))return null;
-        const next=two.find(t=>t!==ts[ts.length-1]);
-        if (ts.includes(next))return null;
-        ts.push(next);
-      }
-      return ts;
-    }
-    function compileSDecorations(xIds) {
-      // No CZ needed until a colour has at least three X's. We use the
-      // existing magnetic ribbon search, one colour at a time, with a
-      // fresh per-colour state. Automatic links are combined modulo two.
-      const originalColor=anyonColor,originalM=mAutoCZ,originalPairs=czPairs;
-      const originalCache=mOptionCache;
-      const manualPairs=czPairs.filter(pair=>!sAutoCZ.some(old=>pairKey(...old)===pairKey(...pair)));
-      const all=[];
-      try {
-        for (const color of ["Red","Blue","Green"]) {
-          const selected=xIds.filter(id=>siteById.get(id).colorName===color)
-                             .sort((a,b)=>siteById.get(a).x-siteById.get(b).x);
-          if (selected.length===0) continue;
-          const ts=getMTrianglePathForXSequence(selected,color);
-          if (!ts) return null;
-          anyonColor=color;
-          czPairs=manualPairs;
-          let built=[];
-          for (let count=1;count<=selected.length;count++) {
-            mAutoCZ=built;
-            const currTriangles=ts.slice(0,count+1);
-            const result=findMDecoration(selected.slice(0,count),currTriangles);
-            if (result===null) return null;
-            built=result;
-          }
-          all.push(...built);
+
+      // With just one triangular segment (two base sites), the string is
+      // an unresolved short prefix.  Not all non-endpoint constraints can
+      // yet be satisfied by CZs whose endpoints lie on this tiny ribbon.
+      if (built.gateOrder.size < 3) return [];
+
+      const localEvents=[];
+      for (const q of xs) {
+        const order=built.gateOrder.get(q);
+        if (order==="XR") {
+          localEvents.push({type:"R",q});
+          localEvents.push({type:"X",q});
+        } else if (order==="RX") {
+          localEvents.push({type:"X",q});
+          localEvents.push({type:"R",q});
+        } else {
+          localEvents.push({type:"X",q});
         }
-      } finally {
-        anyonColor=originalColor;mAutoCZ=originalM;czPairs=originalPairs;mOptionCache=originalCache;
       }
-      // A repeated CZ cancels as CZ^2=I when the three independent colour
-      // ribbons are collected into a single chronologically initial layer.
-      const parity=new Map();
-      for(const [a,b] of all){const key=pairKey(a,b);parity.has(key)?parity.delete(key):parity.set(key,[a,b]);}
-      return [...parity.values()];
+      const phaseSites=new Set(built.gateOrder.keys());
+      const bulkStars=[];
+      for (const star of starData) {
+        const rotations=star.x_qubits.filter(q=>phaseSites.has(q)).length;
+        if ((rotations%2)===0) bulkStars.push(star);
+      }
+      // Each star occupies its own disjoint bit block.  One extra bit in
+      // that block records the sign (-1) of the scalar i^phase.
+      const width=maxQubitId+2;
+      const offsets=new Map(bulkStars.map((s,i)=>[s.id, BigInt(i*width)]));
+      const signOffset=BigInt(maxQubitId+1);
+      let target=0n;
+      for (const star of bulkStars) {
+        const ring=star.inner_qubits;
+        const ringIndex=new Map(ring.map((q,i)=>[q,i]));
+        const tips=new Set(star.x_qubits);
+        let zMask=0n, phase=0;
+        for (let j=localEvents.length-1;j>=0;j--) {
+          const ev=localEvents[j], q=ev.q;
+          if (ev.type==="R" && tips.has(q)) {
+            zMask ^= qubitBit(q);
+            phase=(phase+1)%4;
+          } else if (ev.type==="X") {
+            if ((zMask & qubitBit(q))!==0n) phase=(phase+2)%4;
+            if (ringIndex.has(q)) {
+              const i=ringIndex.get(q);
+              zMask ^= qubitBit(ring[(i+ring.length-1)%ring.length]);
+              zMask ^= qubitBit(ring[(i+1)%ring.length]);
+            }
+          }
+        }
+        // For an even number of R rotations the total phase must be real;
+        // CZ conjugations can only alter it by two powers of i.
+        if (phase%2) return null;
+        const shift=offsets.get(star.id);
+        target ^= reduceTriangleMask(zMask) << shift;
+        if (phase===2) target ^= 1n<<(shift+signOffset);
+      }
+      if (target===0n) return [];
+
+      const columns=[];
+      const ordered=[...xs].sort((a,b)=>a-b);
+      for (let i=0;i<ordered.length;i++) {
+        const a=ordered[i];
+        for (let j=i+1;j<ordered.length;j++) {
+          const b=ordered[j];
+          let column=0n;
+          const intersectA=new Set(eStarIncidence.get(a)||[]);
+          const intersectB=new Set(eStarIncidence.get(b)||[]);
+          for (const starId of intersectA) {
+            const shift=offsets.get(starId);
+            if (shift!==undefined) {
+              column ^= reducedZSingle.get(b)<<shift;
+              if (intersectB.has(starId)) column ^= 1n<<(shift+signOffset);
+            }
+          }
+          for (const starId of intersectB) {
+            const shift=offsets.get(starId);
+            if (shift!==undefined) column ^= reducedZSingle.get(a)<<shift;
+          }
+          if (column!==0n) {
+            const sa=siteById.get(a),sb=siteById.get(b);
+            const dist=Math.hypot(sa.x-sb.x,sa.y-sb.y);
+            columns.push({pair:[a,b],column,dist});
+          }
+        }
+      }
+
+      // Solve the GF(2) equation columns * c = target.  Each selected
+      // variable indicates one CZ.  All phase and Bt-reduction constraints
+      // are enforced simultaneously for every complete bulk star.
+      const pivot=(value)=>value.toString(2).length-1;
+      const basis=new Map(), nullVectors=[];
+      for (let i=0;i<columns.length;i++) {
+        let value=columns[i].column,combo=1n<<BigInt(i);
+        while (value!==0n) {
+          const p=pivot(value),row=basis.get(p);
+          if (row) {value ^= row.vec;combo ^= row.combo;}
+          else {basis.set(p,{vec:value,combo});break;}
+        }
+        if (value===0n) nullVectors.push(combo);
+      }
+      let value=target,selection=0n;
+      while (value!==0n) {
+        const row=basis.get(pivot(value));
+        if (!row) return null;
+        value ^= row.vec;
+        selection ^= row.combo;
+      }
+
+      // Minimize the CZ count within the nullspace.  For short paths we can
+      // enumerate every free-variable choice exactly.  For long ribbons use
+      // a bounded deterministic greedy reduction to keep the UI responsive.
+      function score(mask) {
+        let n=0, length=0;
+        for (let i=0;i<columns.length;i++) {
+          if (mask & (1n<<BigInt(i))) {n++;length+=columns[i].dist;}
+        }
+        return 10000*n+length;
+      }
+      let best=selection,bestScore=score(best);
+      if (nullVectors.length<=11) {
+        for (let pattern=1;pattern<(1<<nullVectors.length);pattern++) {
+          let trial=selection;
+          for (let j=0;j<nullVectors.length;j++) {
+            if (pattern & (1<<j)) trial ^= nullVectors[j];
+          }
+          const s=score(trial);
+          if (s<bestScore) {best=trial;bestScore=s;}
+        }
+      } else {
+        for (let pass=0;pass<3;pass++) {
+          let improved=false;
+          for (const free of nullVectors) {
+            const trial=best^free;
+            const s=score(trial);
+            if (s<bestScore) {best=trial;bestScore=s;improved=true;}
+          }
+          if (!improved)break;
+        }
+      }
+      const result=[];
+      for (let i=0;i<columns.length;i++) {
+        if (best & (1n<<BigInt(i))) result.push(columns[i].pair);
+      }
+      return result;
     }
+
     function handleSAnyonQubit(siteId) {
       const nextBase=[...sBasePath,siteId];
       const built=buildSSpine(nextBase);
       if(!built){setStatus(`${anyonName()}: this extension cannot form a consistent alternating triangle ribbon.`);return false;}
       // The first click sets an anchor; operations begin when the first
       // triangular segment and its orientation have been chosen.
-      const cz=built.xIds.length?compileSDecorations(built.xIds):[];
-      if(cz===null){setStatus(`${anyonName()}: this straight extension has no supported automatic CZ decoration. Choose a different start or use Undo.`);return false;}
+      const cz=built.xIds.length?compileSDecorations(built):[];
+      if(cz===null){setStatus(`${anyonName()}: this extension cannot satisfy the joint bulk-star constraints with CZs restricted to ribbon qubits. Choose a different start or use Undo.`);return false;}
       pushHistory(nextBase.length===1 ? `choosing ${anyonName()} start ${siteId}` : `extending ${anyonName()} to ${siteId}`);
       const oldKeys=new Set(sAutoCZ.map(pair=>pairKey(...pair)));
       czPairs=czPairs.filter(pair=>!oldKeys.has(pairKey(...pair)));
@@ -1621,7 +1723,7 @@ def build_interactive_lattice_html(lattice) -> str:
       const next=availableAnyonQubits();
       const pathText=anyonQubits.join(" → ");
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(`${anyonName()}: ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Three-colour decoration generated; use Violation to inspect the physical endpoint/bulk state.`);
+        setStatus(`${anyonName()}: ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Joint three-color CZ decoration checked against all complete bulk stars; use Violation to inspect the endpoint state.`);
       } else if (anyonKind==="m") {
         const n=anyonQubits.length;
         const starCount= n%2===0 && n>1 ? 3:2;
