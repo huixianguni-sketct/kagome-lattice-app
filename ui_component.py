@@ -529,6 +529,29 @@ def build_interactive_lattice_html(lattice) -> str:
       color: #dc2626;
     }
 
+    .expectation-panel {
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #dbe3ee;
+      color: #1f2937;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .expectation-panel h3 { margin-bottom: 8px; }
+    .expectation-intro { color: #64748b; font-size: 12px; }
+    .expectation-result { margin: 10px 0; font-size: 16px; font-weight: 800; }
+    .expectation-result.good { color: #166534; }
+    .expectation-result.bad { color: #991b1b; }
+    .expectation-panel code { background: #f1f5f9; padding: 1px 3px; border-radius: 3px; overflow-wrap: anywhere; }
+    .expectation-panel details { margin: 8px 0; }
+    .expectation-panel summary { cursor: pointer; font-weight: 700; }
+    .expectation-steps { list-style: decimal; padding-left: 22px; max-height: 235px; overflow-y: auto; }
+    .expectation-steps li { margin: 5px 0; overflow-wrap: anywhere; }
+    .expectation-equation { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 9px; overflow-wrap: anywhere; }
+    .expectation-qubits { font-size: 11px; overflow-wrap: anywhere; color: #475569; }
+    .expectation-note { color: #64748b; font-size: 11px; }
+
     #plot {
       width: 100%;
       height: 760px;
@@ -610,6 +633,11 @@ def build_interactive_lattice_html(lattice) -> str:
         title="Show or hide violated triangle operators">
         Triangle (Bₜ)
       </button>
+
+      <button class="btn expectation-btn" data-expectation="STAR"
+        title="Click a complete hexagonal star to inspect its expectation">Star exp.</button>
+      <button class="btn expectation-btn" data-expectation="TRIANGLE"
+        title="Click a complete monochromatic triangle to inspect its expectation">Triangle exp.</button>
     </div>
 
     <div class="status" id="status">Mode: Z</div>
@@ -641,6 +669,13 @@ def build_interactive_lattice_html(lattice) -> str:
         <p class="tracker-empty" id="tracker-empty">
           No qubits added yet.
         </p>
+
+        <section id="expectation-panel" class="expectation-panel" aria-live="polite">
+          <h3>Expectation calculation</h3>
+          <p class="expectation-intro" id="expectation-content">
+            Press <strong>Star exp.</strong> or <strong>Triangle exp.</strong>, then click inside a complete polygon on the lattice.
+          </p>
+        </section>
       </aside>
     </div>
   </div>
@@ -661,6 +696,9 @@ def build_interactive_lattice_html(lattice) -> str:
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
     const visibilityButtons = Array.from(document.querySelectorAll(".visibility-btn"));
     const violationButtons = Array.from(document.querySelectorAll(".violation-btn"));
+    const expectationButtons = Array.from(document.querySelectorAll(".expectation-btn"));
+    const expectationContent = document.getElementById("expectation-content");
+    const expectationPanel = document.getElementById("expectation-panel");
     const panBtn = document.getElementById("pan-btn");
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
@@ -749,6 +787,11 @@ def build_interactive_lattice_html(lattice) -> str:
       STAR: false,
       TRIANGLE: false,
     };
+
+    // Inspection is display-only: it never modifies the ordered circuit.
+    let expectationMode = null; // "STAR", "TRIANGLE" or null
+    let inspectedObject = null; // {kind, id}
+
 
     // Ordered list of currently active operations.
     // Each entry is { id, type, qubits }.
@@ -1855,6 +1898,224 @@ def build_interactive_lattice_html(lattice) -> str:
       return value === 0n;
     }
 
+    // Trace the same conjugation rules used by starExpectation(). The additional
+    // certificate tracks which complete Bt triangles were used for the Z reduction.
+    function maskSiteIds(mask) {
+      return siteData.filter(site => (mask & qubitBit(site.id)) !== 0n).map(site => site.id);
+    }
+
+    function zExpression(mask) {
+      const ids = maskSiteIds(mask);
+      return ids.length ? ids.map(q => `Z<sub>${q}</sub>`).join(" · ") : "I";
+    }
+
+    function triangleDecomposition(mask) {
+      const rows = Array(maxQubitId + 1).fill(0n);
+      const combos = Array(maxQubitId + 1).fill(0n);
+      for (let i=0; i<triangleData.length; i++) {
+        let v = qubitMask(triangleData[i].qubits);
+        let combination = 1n << BigInt(i);
+        for (let pivot=maxQubitId; pivot>=0; pivot--) {
+          const bit=qubitBit(pivot);
+          if ((v & bit) === 0n) continue;
+          if (rows[pivot]) {
+            v ^= rows[pivot];
+            combination ^= combos[pivot];
+          } else {
+            rows[pivot]=v;
+            combos[pivot]=combination;
+            break;
+          }
+        }
+      }
+      let remainder=mask, combination=0n;
+      for (let pivot=maxQubitId; pivot>=0; pivot--) {
+        const bit=qubitBit(pivot);
+        if ((remainder & bit) && rows[pivot]) {
+          remainder ^= rows[pivot];
+          combination ^= combos[pivot];
+        }
+      }
+      const indices=[];
+      for (let i=0; i<triangleData.length; i++) {
+        if (combination & (1n<<BigInt(i))) indices.push(triangleData[i].id);
+      }
+      return {remainder, triangles:indices};
+    }
+
+    function formatPhase(p) {
+      return ["+1", "+i", "−1", "−i"][((p%4)+4)%4];
+    }
+
+    function traceStarExpectation(star) {
+      const inner=star.inner_qubits, xTips=star.x_qubits;
+      const innerSet=new Set(inner), tipSet=new Set(xTips);
+      const ringIndex=new Map(inner.map((q,i)=>[q,i]));
+      const steps=[];
+      let phasePower=0, mask=0n, unaffected=0;
+      for (let index=operationLog.length-1; index>=0; index--) {
+        const ev=operationLog[index];
+        const beforeMask=mask, beforePhase=phasePower;
+        let explanation="";
+        if (ev.qubits.length===1) {
+          const q=ev.qubits[0];
+          if (ev.type==="Z" && tipSet.has(q)) {
+            phasePower+=2;
+            explanation=`Z<sub>${q}</sub> anticommutes with the outer X<sub>${q}</sub> → phase × (−1).`;
+          } else if (ev.type==="X") {
+            if (mask & qubitBit(q)) {
+              phasePower+=2;
+              explanation=`X<sub>${q}</sub> flips the sign of a residual Z<sub>${q}</sub>. `;
+            }
+            if (innerSet.has(q)) {
+              const i=ringIndex.get(q), a=inner[(i+5)%6], b=inner[(i+1)%6];
+              mask ^= qubitBit(a)^qubitBit(b);
+              explanation+=`X<sub>${q}</sub> conjugates adjacent ring CZ gates → Z<sub>${a}</sub>Z<sub>${b}</sub>.`;
+            }
+          } else if (ev.type==="R" && tipSet.has(q)) {
+            phasePower+=1;
+            mask ^= qubitBit(q);
+            explanation=`R<sub>${q}</sub>† X<sub>${q}</sub> R<sub>${q}</sub> = iX<sub>${q}</sub>Z<sub>${q}</sub>.`;
+          }
+        } else if (ev.type==="CZ" && ev.qubits.length===2) {
+          const [a,b]=ev.qubits;
+          const aTip=tipSet.has(a),bTip=tipSet.has(b);
+          if (aTip && bTip) phasePower+=2;
+          if (aTip) mask ^= qubitBit(b);
+          if (bTip) mask ^= qubitBit(a);
+          if (aTip || bTip) {
+            explanation=`CZ<sub>${a},${b}</sub> adds ${aTip?`Z<sub>${b}</sub>`:""}${aTip&&bTip?" · ":""}${bTip?`Z<sub>${a}</sub>`:""}${aTip&&bTip?" and phase (−1)":""}.`;
+          }
+        }
+        if (beforeMask!==mask || beforePhase!==phasePower) {
+          steps.push({number:index+1, operator:ev.type, qubits:ev.qubits, explanation,
+            phase:formatPhase(phasePower), mask:zExpression(mask)});
+        } else { unaffected++; }
+      }
+      const decomposition=triangleDecomposition(mask);
+      const inSpan=decomposition.remainder===0n;
+      const p=((phasePower%4)+4)%4;
+      const value=!inSpan ? 0 : (p===0?1:(p===2?-1:0));
+      // If a residual is not generated by complete Bt's, a star with odd
+      // overlap gives an explicit orthogonality/zero-expectation witness.
+      let witness=null;
+      if (!inSpan) {
+        witness=starData.find(other=>
+          other.x_qubits.reduce((k,q)=>k+Number((decomposition.remainder&qubitBit(q))!==0n),0)%2===1
+        ) || null;
+      }
+      return {value, mask, phasePower:p, phase:formatPhase(p), steps, unaffected,
+        decomposition, inSpan, witness};
+    }
+
+    function traceTriangleExpectation(triangle) {
+      const support=new Set(triangle.qubits), hits=[];
+      for (let i=0; i<operationLog.length; i++) {
+        const ev=operationLog[i];
+        if (ev.type==="X" && ev.qubits.length===1 && support.has(ev.qubits[0])) {
+          hits.push({number:i+1,q:ev.qubits[0]});
+        }
+      }
+      return {hits, value:hits.length%2?-1:1, ignored:operationLog.length-hits.length};
+    }
+
+    function expectationResultHTML(value) {
+      return `<p class="expectation-result ${value===1?"good":"bad"}">⟨${expectationMode==="STAR"?"Aₛ":"Bₜ"}⟩ = ${value===1?"+1":(value===-1?"−1":"0")}</p>`;
+    }
+
+    function updateExpectationPanel() {
+      if (!inspectedObject) {
+        expectationContent.innerHTML=expectationMode
+          ? `<span class="expectation-intro">Click inside a complete ${expectationMode==="STAR"?"hexagonal star":"triangle"} on the plot to see the calculation. You can click another to compare.</span>`
+          : `<span class="expectation-intro">Press <b>Star exp.</b> or <b>Triangle exp.</b>, then click a complete star or triangle.</span>`;
+        return;
+      }
+      const isStar=inspectedObject.kind==="STAR";
+      const obj=isStar?starById.get(inspectedObject.id):triangleById.get(inspectedObject.id);
+      if (!obj) {
+        inspectedObject=null;
+        expectationContent.textContent="That star/triangle is outside the complete open-boundary set.";
+        return;
+      }
+      if (isStar) {
+        const calc=traceStarExpectation(obj);
+        const triangleNames=calc.decomposition.triangles.map(id=>`B<sub>${id}</sub>`);
+        const steps=calc.steps.map(st=>`<li><strong>#${st.number} ${st.operator}(${st.qubits.join(", ")})</strong>: ${st.explanation}<div class="expectation-qubits">After: phase ${st.phase}; residual ${st.mask}</div></li>`).join("");
+        const reduction=calc.inSpan
+          ? `Q = ${triangleNames.length?triangleNames.join(" · "):"I"} (product of complete B<sub>t</sub>), hence ⟨Ω|Q|Ω⟩ = +1.`
+          : `Q = ${triangleNames.length?triangleNames.join(" · ")+" · ":""}${zExpression(calc.decomposition.remainder)}. The remaining Z-string is not generated by the complete B<sub>t</sub> constraints. ${calc.witness?`It intersects the outer X-support of A<sub>${calc.witness.id}</sub> on an odd number of qubits, so {A<sub>${calc.witness.id}</sub>, Z(remainder)} = 0 and ⟨Ω|Q|Ω⟩ = 0.`:"The current open-boundary checker assigns ⟨Ω|Q|Ω⟩ = 0; no complete-star anticommutation witness was found, so this is a checker assumption rather than a proof."}`;
+        expectationContent.innerHTML=`<strong>${obj.color} star A<sub>${obj.id}</sub></strong> · center (${obj.center.map(x=>x.toFixed(2)).join(", ")})
+          ${expectationResultHTML(calc.value)}
+          <div class="expectation-qubits">Outer X tips: ${obj.x_qubits.join(", ")}<br>Inner CZ ring: ${obj.inner_qubits.join(" → ")} → ${obj.inner_qubits[0]}</div>
+          <p>U is the ordered gate sequence (${operationLog.length} gates). Conjugate in <b>reverse chronological order</b>:</p>
+          <div class="expectation-equation">U† A<sub>${obj.id}</sub> U = ${calc.phase} · A<sub>${obj.id}</sub> · Q<br>Q = ${zExpression(calc.mask)}</div>
+          <details ${calc.steps.length<=12?"open":""}><summary>Gate-by-gate conjugation (${calc.steps.length} contributing; ${calc.unaffected} commuting)</summary>
+          <ol class="expectation-steps">${steps||"<li>All applied gates commute with this star.</li>"}</ol></details>
+          <p><strong>Triangle reduction:</strong> ${reduction}</p>
+          <div class="expectation-equation">⟨Ω|U† A<sub>${obj.id}</sub> U|Ω⟩ = ${calc.phase} × ⟨Ω|Q|Ω⟩ = <b>${calc.value===1?"+1":(calc.value===-1?"−1":"0")}</b></div>
+          ${calc.inSpan&&calc.phasePower%2!==0?'<p class="expectation-note">Consistency warning: an odd imaginary phase survived the B reduction. Check the reference state/boundary assumptions.</p>':''}
+          <p class="expectation-note">Uses all complete triangle constraints on the open patch, matching the existing violation checker. Star IDs are internal to this lattice size.</p>`;
+      } else {
+        const calc=traceTriangleExpectation(obj);
+        const items=calc.hits.map(hit=>`<li>Gate #${hit.number}: X<sub>${hit.q}</sub> anticommutes with B<sub>${obj.id}</sub> → sign flips.</li>`).join("");
+        expectationContent.innerHTML=`<strong>${obj.color} triangle B<sub>${obj.id}</sub></strong> · center (${obj.center.map(x=>x.toFixed(2)).join(", ")})
+          ${expectationResultHTML(calc.value)}
+          <div class="expectation-qubits">B<sub>${obj.id}</sub> = ${obj.qubits.map(q=>`Z<sub>${q}</sub>`).join(" · ")}</div>
+          <div class="expectation-equation">U† B<sub>${obj.id}</sub> U = (−1)<sup>${calc.hits.length}</sup> B<sub>${obj.id}</sub> = ${calc.value===1?"+":"−"}B<sub>${obj.id}</sub></div>
+          <details open><summary>Contributing gates (${calc.hits.length})</summary><ol class="expectation-steps">${items||"<li>No X gates on this triangle.</li>"}</ol></details>
+          <p>${calc.ignored} other gate${calc.ignored===1?"":"s"} commute with this B<sub>t</sub> (Z, R, CZ, or X on other qubits).</p>
+          <div class="expectation-equation">⟨Ω|U† B<sub>${obj.id}</sub> U|Ω⟩ = (−1)<sup>${calc.hits.length}</sup> = <b>${calc.value===1?"+1":"−1"}</b></div>`;
+      }
+    }
+
+    function polygonContains(x,y,ids) {
+      const vertices=ids.map(q=>siteById.get(q));
+      let inside=false;
+      for(let i=0,j=vertices.length-1;i<vertices.length;j=i++){
+        const a=vertices[i],b=vertices[j];
+        if ((a.y>y)!==(b.y>y) && x < (b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x) inside=!inside;
+      }
+      return inside;
+    }
+
+    function selectExpectationPoint(x,y) {
+      if (!expectationMode) return false;
+      const objects=expectationMode==="STAR"?starData:triangleData;
+      const eligible=objects.filter(obj=>polygonContains(x,y,
+        expectationMode==="STAR"?obj.inner_qubits:obj.qubits));
+      if (!eligible.length) return false;
+      eligible.sort((a,b)=>Math.hypot(a.center[0]-x,a.center[1]-y)-Math.hypot(b.center[0]-x,b.center[1]-y));
+      const obj=eligible[0];
+      inspectedObject={kind:expectationMode,id:obj.id};
+      updateExpectationPanel();
+      render();
+      setStatus(`Inspecting ${expectationMode==="STAR"?"star A":"triangle B"}${obj.id}: expectation ${expectationMode==="STAR"?starExpectation(obj):triangleExpectation(obj)}.`);
+      // The right panel may already have a tall tracking table.
+      const panel=expectationPanel.closest(".qubit-panel");
+      if (panel) panel.scrollTop=Math.max(0,expectationPanel.offsetTop-panel.offsetTop-10);
+      return true;
+    }
+
+    function updateExpectationButtons() {
+      for (const btn of expectationButtons) {
+        const on=expectationMode===btn.dataset.expectation;
+        btn.classList.toggle("active",on);
+        btn.setAttribute("aria-pressed",String(on));
+      }
+    }
+
+    function updateInspectionShapes(shapes) {
+      if (!expectationMode) return;
+      const objects=expectationMode==="STAR"?starData:triangleData;
+      for(const obj of objects){
+        const selected=inspectedObject&&inspectedObject.kind===expectationMode&&inspectedObject.id===obj.id;
+        shapes.push({type:"path",path:polygonPath(expectationMode==="STAR"?obj.inner_qubits:obj.qubits),
+          xref:"x",yref:"y",layer:"above",
+          fillcolor: selected?"rgba(37,99,235,0.17)":"rgba(14,165,233,0.025)",
+          line:{color:selected?"#1d4ed8":"rgba(14,116,144,0.45)",width:selected?3:1.25,dash:selected?"solid":"dot"}});
+      }
+    }
+
     function triangleExpectation(triangle) {
       const triangleSet = new Set(triangle.qubits);
       let sign = 1;
@@ -2111,6 +2372,7 @@ def build_interactive_lattice_html(lattice) -> str:
         }
       }
 
+      updateInspectionShapes(shapes);
       return shapes;
     }
 
@@ -2435,6 +2697,16 @@ def build_interactive_lattice_html(lattice) -> str:
       if (anyonNextTrace !== null) {
         traces.push(anyonNextTrace);
       }
+      if (expectationMode) {
+        const objects=expectationMode==="STAR"?starData:triangleData;
+        traces.push({
+          name:"inspect-centers", type:"scatter", mode:"markers", showlegend:false,
+          x:objects.map(obj=>obj.center[0]), y:objects.map(obj=>obj.center[1]),
+          customdata:objects.map(obj=>obj.id),
+          marker:{size:12,color:"rgba(14,116,144,0.32)",line:{color:"#0e7490",width:1}},
+          hovertemplate:`<b>Click ${expectationMode==="STAR"?"star A":"triangle B"}%{customdata} to calculate expectation</b><extra></extra>`,
+        });
+      }
 
       const layout = {
           // Keep the user's current zoom/pan whenever Plotly.react()
@@ -2477,6 +2749,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
       Plotly.react(plotDiv, traces, layout, config);
       updateTrackedTable();
+      updateExpectationPanel();
     }
 
     function describeConnectedCZs(siteId, pairs) {
@@ -2798,6 +3071,39 @@ def build_interactive_lattice_html(lattice) -> str:
       });
     }
 
+    // Calculation tools do not change any operations. Clicking a second time
+    // closes selection mode but leaves the last calculation visible.
+    for (const btn of expectationButtons) {
+      btn.addEventListener("click", () => {
+        const next=btn.dataset.expectation;
+        expectationMode=expectationMode===next?null:next;
+        if (expectationMode && inspectedObject && inspectedObject.kind!==expectationMode) {
+          inspectedObject=null;
+        }
+        if (panMode && expectationMode) setPanMode(false);
+        updateExpectationButtons();
+        render();
+        setStatus(expectationMode
+          ? `Click inside any complete ${expectationMode==="STAR"?"hexagonal star":"triangle"} to calculate its expectation.`
+          : "Expectation selection off; the last calculation remains in the right panel.");
+      });
+    }
+
+    // Unlike Plotly point-click, this also catches empty polygon interiors.
+    plotDiv.addEventListener("click", (evt) => {
+      if (!expectationMode || panMode) return;
+      const drag=plotDiv.querySelector(".nsewdrag");
+      const fl=plotDiv._fullLayout;
+      if (!drag || !fl || !fl.xaxis || !fl.yaxis) return;
+      const rect=drag.getBoundingClientRect();
+      const px=evt.clientX-rect.left,py=evt.clientY-rect.top;
+      if (px<0 || py<0 || px>rect.width || py>rect.height) return;
+      const xr=fl.xaxis.range,yr=fl.yaxis.range;
+      const x=xr[0]+px/rect.width*(xr[1]-xr[0]);
+      const y=yr[1]-py/rect.height*(yr[1]-yr[0]);
+      selectExpectationPoint(x,y);
+    });
+
     panBtn.addEventListener("click", () => {
       setPanMode(!panMode);
     });
@@ -2828,6 +3134,7 @@ def build_interactive_lattice_html(lattice) -> str:
     updateTrackedTable();
     updateVisibilityButtons();
     updateViolationButtons();
+    updateExpectationButtons();
     render();
 
     plotDiv.on("plotly_click", (eventData) => {
@@ -2839,6 +3146,15 @@ def build_interactive_lattice_html(lattice) -> str:
       }
 
       const point = eventData.points[0];
+      if (expectationMode) {
+        if (point.data && point.data.name==="inspect-centers") {
+          const id=Number(point.customdata);
+          const obj=(expectationMode==="STAR"?starById:triangleById).get(id);
+          if (obj) selectExpectationPoint(obj.center[0],obj.center[1]);
+        }
+        // In inspection mode, never apply Z/X/R/CZ by clicking a qubit.
+        return;
+      }
 
       // Named traces avoid fragile curve-index dependencies as overlays
       // (violation markers, anyon highlights) are added or removed.
