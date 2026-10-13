@@ -1055,10 +1055,16 @@ def build_interactive_lattice_html(lattice) -> str:
         return;
       }
       if (anyonKind === "s1" || anyonKind === "s2") {
-        anyonHint.textContent = "Select a start, then extend along one straight horizontal line. Triangle tips and three-colour CZ dressing are automatic.";
+        anyonHint.textContent = "Select a start, then extend horizontally. The green m-string starts at its first lower green tip; its red–blue CZ connection is added automatically.";
+        const built = buildSSpine(sBasePath);
+        const green = built ? shiftedGreenSeed(built) : null;
+        const redBlueCount = sAutoCZ.filter(([a,b]) => {
+          const colors = new Set([siteById.get(a)?.colorName,siteById.get(b)?.colorName]);
+          return colors.has("Red") && colors.has("Blue");
+        }).length;
         anyonSummary.textContent = sBasePath.length < 2
-          ? (sBasePath.length ? "Select direction from the highlighted neighbors" : "Up/down triangles: mirrored XR ↔ RX")
-          : `${sBasePath.length} spine · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ · gate order: CZ → X/R`;
+          ? (sBasePath.length ? "Select direction from highlighted neighbors" : "Up/down triangles: mirrored XR ↔ RX")
+          : `${sBasePath.length} spine · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ (${redBlueCount} red–blue) · green start: ${green ? `lower tip Q${green.tip}` : "awaiting lower green tip"} · CZ → X/R`;
       } else if (anyonKind === "e") {
         anyonHint.textContent = "Choose highlighted qubits to extend the Z-string.";
         anyonSummary.textContent = anyonQubits.length
@@ -1412,6 +1418,29 @@ def build_interactive_lattice_html(lattice) -> str:
       return {xIds:[...xIds],pairs,gateOrder};
     }
 
+    // The m_G constituent begins at the first GREEN downward triangle tip,
+    // not the initial horizontal base of the composite s1/s2 ribbon.  The
+    // adjacent red and blue base qubits of that triangle are thus the FIRST
+    // red-blue connection in the shifted green-string decoration.  They are
+    // mandatory when that tip appears in a completed (>=2 triangle) path.
+    // This deliberately differs from starting all three m strings at the
+    // common leftmost/rightmost spine qubit.
+    function shiftedGreenSeed(built) {
+      for (const tri of built.pairs) {
+        const apexSite = siteById.get(tri.apex);
+        if (tri.up || apexSite?.colorName !== "Green") continue;
+        const a = tri.left, b = tri.right;
+        const colors = new Set([siteById.get(a)?.colorName, siteById.get(b)?.colorName]);
+        if (!colors.has("Red") || !colors.has("Blue")) continue;
+        return {
+          tip: tri.apex,
+          edge: [a,b],
+          triangle: tri,
+        };
+      }
+      return null;
+    }
+
     // Joint three-colour CZ search for s1/s2.
     // Every CZ joins TWO X sites selected on the physical ribbon, with no
     // distance restriction.  This differs from merely concatenating three
@@ -1483,7 +1512,33 @@ def build_interactive_lattice_html(lattice) -> str:
         target ^= reduceTriangleMask(zMask) << shift;
         if (phase===2) target ^= 1n<<(shift+signOffset);
       }
-      if (target===0n) return [];
+      // The shifted m_G-origin red-blue link is fixed by the selected
+      // triangle geometry, rather than being left to the optimizer.
+      // Remaining CZs are solved jointly so every complete bulk star has
+      // the required +1 expectation.  If the first downward green tip has
+      // not yet appeared in the selected prefix, no seed is forced yet.
+      const greenStart = shiftedGreenSeed(built);
+      const mandatory = greenStart ? [greenStart.edge] : [];
+      const mandatoryKeys = new Set(mandatory.map(([a,b])=>pairKey(a,b)));
+      const czColumn = (a,b) => {
+        let column=0n;
+        const intersectA=new Set(eStarIncidence.get(a)||[]);
+        const intersectB=new Set(eStarIncidence.get(b)||[]);
+        for (const starId of intersectA) {
+          const shift=offsets.get(starId);
+          if (shift!==undefined) {
+            column ^= reducedZSingle.get(b)<<shift;
+            if (intersectB.has(starId)) column ^= 1n<<(shift+signOffset);
+          }
+        }
+        for (const starId of intersectB) {
+          const shift=offsets.get(starId);
+          if (shift!==undefined) column ^= reducedZSingle.get(a)<<shift;
+        }
+        return column;
+      };
+      for (const [a,b] of mandatory) target ^= czColumn(a,b);
+      if (target===0n) return mandatory;
 
       const columns=[];
       const ordered=[...xs].sort((a,b)=>a-b);
@@ -1491,20 +1546,8 @@ def build_interactive_lattice_html(lattice) -> str:
         const a=ordered[i];
         for (let j=i+1;j<ordered.length;j++) {
           const b=ordered[j];
-          let column=0n;
-          const intersectA=new Set(eStarIncidence.get(a)||[]);
-          const intersectB=new Set(eStarIncidence.get(b)||[]);
-          for (const starId of intersectA) {
-            const shift=offsets.get(starId);
-            if (shift!==undefined) {
-              column ^= reducedZSingle.get(b)<<shift;
-              if (intersectB.has(starId)) column ^= 1n<<(shift+signOffset);
-            }
-          }
-          for (const starId of intersectB) {
-            const shift=offsets.get(starId);
-            if (shift!==undefined) column ^= reducedZSingle.get(a)<<shift;
-          }
+          if (mandatoryKeys.has(pairKey(a,b))) continue;
+          const column=czColumn(a,b);
           if (column!==0n) {
             const sa=siteById.get(a),sb=siteById.get(b);
             const dist=Math.hypot(sa.x-sb.x,sa.y-sb.y);
@@ -1566,7 +1609,7 @@ def build_interactive_lattice_html(lattice) -> str:
           if (!improved)break;
         }
       }
-      const result=[];
+      const result=[...mandatory];
       for (let i=0;i<columns.length;i++) {
         if (best & (1n<<BigInt(i))) result.push(columns[i].pair);
       }
@@ -1645,7 +1688,7 @@ def build_interactive_lattice_html(lattice) -> str:
       render();
       const options=availableAnyonQubits();
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(options.length ? `${anyonName()}: select a highlighted start qubit, then extend horizontally. XR/RX, tip X, and all three colour CZ connections are compiled automatically.`
+        setStatus(options.length ? `${anyonName()}: select a highlighted start qubit, then extend horizontally. XR/RX, tip X, and shifted green-origin red–blue CZ connections are compiled automatically.`
           : `${anyonName()}: no interior straight Kagome line is available.`);
       } else if (anyonKind==="m") {
         setStatus(options.length
@@ -1723,7 +1766,7 @@ def build_interactive_lattice_html(lattice) -> str:
       const next=availableAnyonQubits();
       const pathText=anyonQubits.join(" → ");
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(`${anyonName()}: ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Joint three-color CZ decoration checked against all complete bulk stars; use Violation to inspect the endpoint state.`);
+        setStatus(`${anyonName()}: ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Shifted green-origin red–blue CZ and joint bulk-star constraints checked; use Violation to inspect the endpoint state.`);
       } else if (anyonKind==="m") {
         const n=anyonQubits.length;
         const starCount= n%2===0 && n>1 ? 3:2;
