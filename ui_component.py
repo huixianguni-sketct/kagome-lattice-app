@@ -1106,7 +1106,7 @@ def build_interactive_lattice_html(lattice) -> str:
         return;
       }
       if (anyonKind === "s1" || anyonKind === "s2") {
-        anyonHint.textContent = "Select a start, then choose a horizontal or diagonal direction. Keep extending straight; up/down triangle XR/RX order is read left-to-right. Tips and CZs are automatic.";
+        anyonHint.textContent = "Select a start, then choose a horizontal or diagonal direction. Existing X/XR/RX strings may overlap; previous gates are retained. Tips and CZs are automatic.";
         anyonSummary.textContent = sBasePath.length < 2
           ? (sBasePath.length ? "Select direction from the highlighted neighbors" : "Up/down triangles: mirrored XR ↔ RX")
           : `${sBasePath.length} spine · ${sDirectionLabel()} · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ · gate order: CZ → X/R`;
@@ -1454,15 +1454,28 @@ def build_interactive_lattice_html(lattice) -> str:
       const u=sStepVector(a[0],a[1]),v=sStepVector(b[0],b[1]);
       return Math.abs(u[0]-v[0])<1e-5 && Math.abs(u[1]-v[1])<1e-5;
     }
+    // Guided semion ribbons may overlap physical X, XR, or RX gates left by
+    // earlier s1/s2 paths.  Gate history is cumulative: the new guide adds a
+    // fresh R/X/CZ circuit, instead of replacing or toggling the old one.
+    // Z-occupied and R-only sites are not eligible for a new semion spine.
+    function canPlaceSOnQubit(id) {
+      const localGates = operationLog.filter(ev=>
+        ev.qubits.length===1 && ev.qubits[0]===id
+      ).map(ev=>ev.type);
+      if (localGates.includes("Z")) return false;
+      if (localGates.includes("R") && !localGates.includes("X")) return false;
+      return !localOps.has(id) || localOps.get(id)==="X";
+    }
+
     function availableSAnyonQubits() {
       if (!sBasePath.length) {
         const all=new Set();
         for (const edge of sStraightNeighbors.values()) {all.add(edge.left);all.add(edge.right);}
-        return [...all].filter(id=>!localOps.has(id)&&!operationLog.some(ev=>ev.type==='R'&&ev.qubits[0]===id));
+        return [...all].filter(id=>canPlaceSOnQubit(id));
       }
       const last=sBasePath[sBasePath.length-1];
       return (sSiteNeighbors.get(last)||[]).filter(id=>{
-        if (sBasePath.includes(id) || localOps.has(id)) return false;
+        if (sBasePath.includes(id) || !canPlaceSOnQubit(id)) return false;
         if (!sStraightNeighbors.has(pairKey(last,id))) return false;
         // After the second click, there can be no bending or reversing.
         if (sBasePath.length>=2 && !sSameVector(
@@ -1479,7 +1492,7 @@ def build_interactive_lattice_html(lattice) -> str:
         if (i>0 && !sSameVector([base[i-1],base[i]],[base[i],base[i+1]])) return null;
         const tri=sStraightNeighbors.get(pairKey(base[i],base[i+1]));
         if (!tri) return null;
-        if (localOps.has(tri.apex) && !sGuidedX.includes(tri.apex)) return null;
+        if (!canPlaceSOnQubit(tri.apex)) return null;
         xIds.add(tri.apex);pairs.push(tri);
         const flip=(anyonKind==='s2');
         const leftOrder=(tri.up!==flip)?'XR':'RX';
@@ -1662,9 +1675,11 @@ def build_interactive_lattice_html(lattice) -> str:
       const cz=built.xIds.length?compileSDecorations(built):[];
       if(cz===null){setStatus(`${anyonName()}: this extension cannot satisfy the joint bulk-star constraints with CZs restricted to ribbon qubits. Choose a different start or use Undo.`);return false;}
       pushHistory(nextBase.length===1 ? `choosing ${anyonName()} start ${siteId}` : `extending ${anyonName()} to ${siteId}`);
-      const oldKeys=new Set(sAutoCZ.map(pair=>pairKey(...pair)));
-      czPairs=czPairs.filter(pair=>!oldKeys.has(pairKey(...pair)));
+      // Remove only the *current guide session's* previous compilation.
+      // Never remove a CZ just because another ribbon uses the same pair:
+      // overlapping ribbons must retain their independent physical gates.
       operationLog=operationLog.filter(ev=>!(ev.source==="guided-s"&&ev.guideId===sGuideId));
+      czPairs=operationLog.filter(ev=>ev.type==="CZ").map(ev=>[...ev.qubits]);
       sBasePath=nextBase;
       anyonQubits=[...nextBase];
       sGuidedX=built.xIds;
@@ -1672,7 +1687,10 @@ def build_interactive_lattice_html(lattice) -> str:
       for (const [a,b] of cz) {
         czPairs.push([a,b]);recordOperation("CZ",[a,b],"guided-s",sGuideId);
       }
-      // Chronology: CZ first. For XR apply R then X; for RX apply X then R.
+      // Chronology: existing ribbons, then this guide's CZ first, followed
+      // by its R/X operations.  A repeated X, R, or CZ remains in the log
+      // (with its own ID) because it can change the physical combined state.
+      // For XR apply R then X; for RX apply X then R.
       for (const q of sGuidedX) {
         const order=built.gateOrder.get(q);
         if (order==="XR") {
@@ -1725,7 +1743,7 @@ def build_interactive_lattice_html(lattice) -> str:
       render();
       const options=availableAnyonQubits();
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(options.length ? `${anyonName()}: select a highlighted start qubit, then extend horizontally or diagonally in one straight direction. XR/RX, tip X, and joint CZ dressing are automatic.`
+        setStatus(options.length ? `${anyonName()}: select a highlighted start, including qubits on earlier X/XR/RX strings. Extend horizontally or diagonally; overlapping gates accumulate. XR/RX, tip X, and joint CZ dressing are automatic.`
           : `${anyonName()}: no interior straight Kagome line is available.`);
       } else if (anyonKind==="m") {
         setStatus(options.length
