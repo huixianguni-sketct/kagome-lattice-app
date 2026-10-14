@@ -1400,15 +1400,18 @@ def build_interactive_lattice_html(lattice) -> str:
 
     // ------------------------------------------------------------------
     // Three-colour straight ribbons (s1 / s2).
-    // Accept a horizontal spine, or either 60-degree diagonal line.
-    // Every selected Kagome edge belongs to one small triangle. Its
-    // UP/DOWN orientation is determined geometrically from its horizontal
-    // side (not from the apex relative to the selected DIAGONAL edge).
-    // The left and right base sites are sorted by global x coordinate,
-    // independent of click direction. s1 uses XR(left),RX(right) on UP
-    // triangles and RX(left),XR(right) on DOWN triangles. s2 swaps them.
-    // The third triangle vertex always carries X only. All CZ gates
-    // remain a jointly optimized three-colour decoration applied first.
+    // Accept horizontal and both 60-degree diagonal directions.
+    // IMPORTANT: UP / DOWN is defined relative to the direction of travel
+    // along the SELECTED EDGE, not relative to the triangle's horizontal base.
+    // A triangle whose third vertex lies LEFT of the directed path is UP;
+    // RIGHT of the path is DOWN.  With s1, UP => XR on the first selected
+    // qubit, RX on the next; DOWN => RX first, XR next.  s2 reverses them.
+    // Reversing travel reverses both orientation and endpoint order, so the
+    // final assignment to each PHYSICAL qubit is unchanged.
+    // In particular: green -> red with the tip to the right => RX green,
+    // XR red; reverse red -> green => XR red, RX green.
+    // The third triangle vertex receives X only.  All CZ gates remain a
+    // jointly optimized three-colour decoration applied first.
     // ------------------------------------------------------------------
     const sStraightNeighbors = new Map();
     const sSiteNeighbors = new Map(siteData.map(s => [s.id, []]));
@@ -1417,19 +1420,14 @@ def build_interactive_lattice_html(lattice) -> str:
       sSiteNeighbors.get(b).push(a);
     }
 
-    // Locate the orientation of a small Kagome triangle by its horizontal
-    // side. This works for horizontal AND diagonal selected edges.
-    function sTriangleUp(vertices) {
-      let horizontal=null;
-      for (let i=0;i<3;i++) {
-        for (let j=i+1;j<3;j++) {
-          const a=siteById.get(vertices[i]), b=siteById.get(vertices[j]);
-          if (Math.abs(a.y-b.y)<1e-5) horizontal=[vertices[i],vertices[j]];
-        }
-      }
-      if (!horizontal) return null;
-      const tip=vertices.find(id=>!horizontal.includes(id));
-      return siteById.get(tip).y>siteById.get(horizontal[0]).y;
+    // The 2D cross product is positive when the triangle's third vertex is
+    // to the LEFT of the directed edge a -> b, negative on its RIGHT.
+    // This is the ribbon-relative UP/DOWN convention, valid for all slopes.
+    function sDirectedTriangleUp(a, b, apex) {
+      const p=siteById.get(a),q=siteById.get(b),t=siteById.get(apex);
+      const cross=(q.x-p.x)*(t.y-p.y)-(q.y-p.y)*(t.x-p.x);
+      if (Math.abs(cross)<1e-7) return null;
+      return cross>0;
     }
     for (const [a,b] of edgePairs) {
       const sa=siteById.get(a),sb=siteById.get(b);
@@ -1440,10 +1438,9 @@ def build_interactive_lattice_html(lattice) -> str:
       if (common.length!==1) continue;
       const apex=common[0];
       if (![a,b,apex].every(id=>(mTriangleIncidence.get(id)||[]).length===2)) continue;
-      const up=sTriangleUp([a,b,apex]);
-      if (up===null) continue;
+      if (sDirectedTriangleUp(a,b,apex)===null) continue;
       const l=sa.x<sb.x?a:b,r=sa.x<sb.x?b:a;
-      sStraightNeighbors.set(pairKey(a,b),{left:l,right:r,apex,up});
+      sStraightNeighbors.set(pairKey(a,b),{left:l,right:r,apex});
     }
 
     function sStepVector(a,b) {
@@ -1494,10 +1491,15 @@ def build_interactive_lattice_html(lattice) -> str:
         if (!tri) return null;
         if (!canPlaceSOnQubit(tri.apex)) return null;
         xIds.add(tri.apex);pairs.push(tri);
+        // Determine UP/DOWN relative to the user-selected travel direction.
+        // This corrects the previous diagonal mapping, which used the
+        // physical triangle's horizontal-base orientation instead.
+        const orientedUp=sDirectedTriangleUp(base[i],base[i+1],tri.apex);
+        if (orientedUp===null) return null;
         const flip=(anyonKind==='s2');
-        const leftOrder=(tri.up!==flip)?'XR':'RX';
-        const rightOrder=leftOrder==='XR'?'RX':'XR';
-        for (const [q,order] of [[tri.left,leftOrder],[tri.right,rightOrder]]) {
+        const firstOrder=(orientedUp!==flip)?'XR':'RX';
+        const nextOrder=firstOrder==='XR'?'RX':'XR';
+        for (const [q,order] of [[base[i],firstOrder],[base[i+1],nextOrder]]) {
           if (gateOrder.has(q)&&gateOrder.get(q)!==order) return null;
           gateOrder.set(q,order);
         }
