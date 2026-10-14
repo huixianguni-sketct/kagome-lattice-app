@@ -587,6 +587,7 @@ def build_interactive_lattice_html(lattice) -> str:
     .r-math{background:#f8fafc;border:1px solid #e2e8f0;padding:9px;border-radius:7px;margin:10px 0;}
     .r-error{color:#9f1239;font-weight:700;}
     .r-caveat{color:#64748b;font-size:11px;}
+    .r-fixed-note{font-size:12px;font-weight:700;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;padding:7px;border-radius:6px;}
     @media(max-width:900px){.r-layout{grid-template-columns:1fr}.r-panel{max-height:none}}
 
   </style>
@@ -737,7 +738,8 @@ def build_interactive_lattice_html(lattice) -> str:
           <details open>
             <summary><strong>Interface corrections for displayed move</strong></summary>
             <p class="r-caveat">The suggested X and star-projector IDs are <strong>not</strong> guaranteed by the drawing. Verify them against the physical interface. A +1 star projection is a postselected measurement, not an X/Z/CZ gate.</p>
-            <label for="r-edit-x">Extra X qubit IDs, comma-separated</label>
+            <p class="r-fixed-note" id="r-fixed-x-note" aria-live="polite"></p>
+            <label for="r-edit-x">Additional interface X qubit IDs, comma-separated</label>
             <input id="r-edit-x" placeholder="e.g. 42, 73" aria-label="Interface X correction qubit IDs"/>
             <label for="r-edit-stars">Complete star IDs to project onto A=+1</label>
             <input id="r-edit-stars" placeholder="e.g. 5, 8, 9" aria-label="Interface projected star IDs"/>
@@ -3268,6 +3270,7 @@ def build_interactive_lattice_html(lattice) -> str:
     const rOverview=document.getElementById('r-overview');
     const rEditX=document.getElementById('r-edit-x');
     const rEditStars=document.getElementById('r-edit-stars');
+    const rFixedXNote=document.getElementById('r-fixed-x-note');
     const rSaveAdjust=document.getElementById('r-save-adjust');
     const rStepButtons=Array.from(document.querySelectorAll('.r-step'));
     const rSequences={A:['S','Y','M21','M0'],B:['S','M0','M21','Y']};
@@ -3348,7 +3351,11 @@ def build_interactive_lattice_html(lattice) -> str:
       return triangleData.filter(t=>t.qubits.filter(q=>xcounts.has(q)).length%2===1);
     }
     function rCorrectionAuto(move,geom,segments) {
-      const srcId=move==='M21'?geom.q2:geom.q1, src=rPoint(srcId);
+      // M(2→1) has one mandatory interface X at the original position 2.
+      // It is inserted separately by rStepEvents, not guessed as an optional correction.
+      // Never place q2 in rAdjust.M21.x: that would apply X twice and cancel it.
+      if(move==='M21')return [];
+      const srcId=geom.q1, src=rPoint(srcId);
       const flux=new Set(rFluxIds([...segments.S.events,...segments[move].events]).map(t=>t.id));
       const matching=[];
       for(const q of siteData) {
@@ -3377,7 +3384,7 @@ def build_interactive_lattice_html(lattice) -> str:
       for(const move of ['Y','M21','M0']){
         rAdjust[move]={x:rCorrectionAuto(move,rGeom,rSegments),stars:rStarsAuto(move,rGeom)};
       }
-      rOverview.innerHTML=`Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>Corrections and projectors below are initial suggestions, not independently certified.</strong>`;
+      rOverview.innerHTML=`Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> All other X corrections and star projectors are only initial suggestions, not independently certified.`;
       rCalc.innerHTML='<p>Complete both four-step processes to compare their final quantum states. The interface corrections must be validated first.</p>';
       rUpdateButtons();rRenderStep();setTimeout(rResize,350);
     }
@@ -3387,6 +3394,10 @@ def build_interactive_lattice_html(lattice) -> str:
         const move=rSequences[which][j],seg=rSegments[move];
         for(const ev of seg.events)events.push({...ev,step:j+1,move});
         if(move!=='S') {
+          // User-specified microscopic rule for M(2→1): the interface is at
+          // the OLD position 2. Exactly one X there, AFTER the fresh s string
+          // and BEFORE any interface star projection (no duplicate X).
+          if(move==='M21')events.push({type:'X',qubits:[rGeom.q2],source:'interface-fixed',step:j+1,move});
           for(const q of rAdjust[move].x)events.push({type:'X',qubits:[q],source:'interface',step:j+1,move});
           for(const starId of rAdjust[move].stars)events.push({type:'P',starId,source:'interface',step:j+1,move});
         }
@@ -3433,7 +3444,17 @@ def build_interactive_lattice_html(lattice) -> str:
           rPlot.on('plotly_click',rHandlePlotClick);rPlot._rClickBound=true;
         }
       }).catch(console.error);
-      if(rActiveStep>1){const move=rSequences[rActiveProcess][rActiveStep-1];rEditX.value=rAdjust[move].x.join(', ');rEditStars.value=rAdjust[move].stars.join(', ');rSaveAdjust.disabled=false;}else{rEditX.value='';rEditStars.value='';rSaveAdjust.disabled=true;}
+      if(rActiveStep>1){
+        const move=rSequences[rActiveProcess][rActiveStep-1];
+        rFixedXNote.textContent=move==='M21'
+          ? `Mandatory interface operation: X at position 2 = qubit ${rGeom.q2} (applied exactly once, after the fresh 2→1 segment). Do NOT enter this qubit again below.`
+          : 'There is no fixed interface X for this movement. Extra X corrections are editable below.';
+        rEditX.value=rAdjust[move].x.join(', ');
+        rEditStars.value=rAdjust[move].stars.join(', ');
+        rSaveAdjust.disabled=false;
+      }else{
+        rFixedXNote.textContent='';rEditX.value='';rEditStars.value='';rSaveAdjust.disabled=true;
+      }
       rUpdateStatus(events,active);setTimeout(rResize,220);
     }
     function rUpdateButtons(){for(const b of rStepButtons){const seq=b.dataset.rProcess,st=Number(b.dataset.rStep);b.classList.toggle('active',rActiveProcess===seq&&rActiveStep===st);b.classList.toggle('r-done',rCompleted[seq]>=st);}}
@@ -3442,7 +3463,8 @@ def build_interactive_lattice_html(lattice) -> str:
       const fluxes=rFluxIds(rUnitaryOnly(events));
       const label=rActiveStep?`${rActiveProcess} · Step ${rActiveStep}: ${rDescriptions[active]}`:'Choose one of the process buttons.';
       const value=`${counts.X} X · ${counts.R} R · ${counts.CZ} CZ · ${counts.P} star projectors; ${fluxes.length} excited triangles before projectors`;
-      const diff=rActiveStep>1?`Interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}`:'';
+      const diff=rActiveStep>1?
+        `${active==='M21'?`Fixed X at position 2: q${rGeom.q2}; `:''}Additional interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}`:'';
       document.getElementById('r-stage-caption').innerHTML=`<strong>${rEscape(label)}</strong><div>${rEscape(value)}</div><div>${rEscape(diff)}</div>`;
       if(rCompleted.A===4 && rCompleted.B===4)rComputeR();
       else rCalc.innerHTML=`<p><strong>Not evaluated yet.</strong> Complete both four-stage processes. For each move, examine the suggested interface X and projector star IDs and correct them as needed.</p><div class="r-math">R<sub>candidate</sub> = &lt;Ψ<sub>2</sub>|Ψ<sub>1</sub>&gt; / (‖Ψ<sub>1</sub>‖‖Ψ<sub>2</sub>‖)</div>`;
@@ -3595,6 +3617,8 @@ def build_interactive_lattice_html(lattice) -> str:
       const move=rSequences[rActiveProcess][rActiveStep-1];
       if(name==='qubits' && Number.isInteger(Number(p.customdata))) {
         const id=Number(p.customdata),arr=rAdjust[move].x;
+        // The fixed X(q2) already exists as a mandatory interface gate.
+        if(move==='M21'&&id===rGeom.q2)return;
         rAdjust[move].x=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
       } else if(name==='r-star-centers' && Number.isInteger(Number(p.customdata))) {
         const id=Number(p.customdata),arr=rAdjust[move].stars;
@@ -3619,6 +3643,14 @@ def build_interactive_lattice_html(lattice) -> str:
         rCalc.innerHTML='<p class="r-error">Invalid qubit or complete-star ID.</p>';return;
       }
       if(qs.length>8||stars.length>8){rCalc.innerHTML='<p class="r-error">Interface has too many proposed corrections; review the geometry.</p>';return;}
+      if(move==='M21'&&qs.includes(rGeom.q2)){
+        rCalc.innerHTML=`<p class="r-error">Position 2 (qubit ${rGeom.q2}) already receives one mandatory interface X. Remove it from the additional X list to avoid X²=I.</p>`;
+        return;
+      }
+      // Duplicate entries would generate unintended pairwise X cancellations.
+      if(new Set(qs).size!==qs.length||new Set(stars).size!==stars.length){
+        rCalc.innerHTML='<p class="r-error">Please remove duplicate qubit or star IDs.</p>';return;
+      }
       rAdjust[move]={x:qs,stars};rCalcToken++;rRenderStep();
     });
 
