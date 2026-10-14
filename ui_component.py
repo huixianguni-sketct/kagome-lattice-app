@@ -566,6 +566,29 @@ def build_interactive_lattice_html(lattice) -> str:
         max-height: none;
       }
     }
+ 
+    /* Kawagoe–Levin T-junction experiment (independent second canvas). */
+    .r-studio[hidden] { display: none !important; }
+    .r-studio {margin:20px 0 28px; border-top:2px solid #e2e8f0; padding-top:15px;}
+    .r-toolbar {display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0;}
+    .r-heading {font-size:17px;font-weight:800;color:#0f172a;}
+    .r-step-row {display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:8px 0;}
+    .r-process-title {font-size:13px;color:#334155;font-weight:800;min-width:105px;}
+    .r-step {font-size:13px;padding:7px 9px;}
+    .r-step.r-done:not(.active){border-color:#86efac;background:#f0fdf4;}
+    .r-overview,.r-stage-caption {color:#475569;font-size:12px;line-height:1.55;margin:9px 0;}
+    .r-layout {display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start;}
+    #r-plot {height:530px;min-width:0;width:100%;border:1px solid #dbe3ee;border-radius:9px;}
+    .r-panel {border:1px solid #dbe3ee;border-radius:9px;padding:12px;max-height:545px;overflow-y:auto;background:#fff;font-size:12px;line-height:1.55;overflow-wrap:anywhere;}
+    .r-panel h3 {font-size:16px;color:#0f172a;margin:0 0 10px;}
+    .r-panel label{display:block;margin:8px 0 3px;font-weight:700;}
+    .r-panel input{box-sizing:border-box;width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;}
+    .r-panel button{margin-top:8px;}
+    .r-math{background:#f8fafc;border:1px solid #e2e8f0;padding:9px;border-radius:7px;margin:10px 0;}
+    .r-error{color:#9f1239;font-weight:700;}
+    .r-caveat{color:#64748b;font-size:11px;}
+    @media(max-width:900px){.r-layout{grid-template-columns:1fr}.r-panel{max-height:none}}
+
   </style>
 </head>
 <body>
@@ -678,6 +701,52 @@ def build_interactive_lattice_html(lattice) -> str:
         </section>
       </aside>
     </div>
+    <div class="r-toolbar">
+      <span class="toolbar-label">R calculation</span>
+      <select class="anyon-selector" id="r-select" aria-label="Choose a candidate string for microscopic R calculation">
+        <option value="">Select s1 or s2…</option>
+        <option value="s1">s1</option>
+        <option value="s2">s2</option>
+      </select>
+      <span class="anyon-hint">Shows the independent Kawagoe–Levin T-junction protocol below.</span>
+    </div>
+
+    <section class="r-studio" id="r-studio" hidden>
+      <div class="r-toolbar">
+        <span class="r-heading">Microscopic R calculation — experimental</span>
+      </div>
+      <p id="r-overview" class="r-overview"></p>
+      <div class="r-step-row"><span class="r-process-title">Process (1)</span>
+        <button class="btn r-step" data-r-process="A" data-r-step="1">1. Split S(1,2)</button>
+        <button class="btn r-step" data-r-process="A" data-r-step="2">2. Move 1 → Y</button>
+        <button class="btn r-step" data-r-process="A" data-r-step="3">3. Move 2 → 1</button>
+        <button class="btn r-step" data-r-process="A" data-r-step="4">4. Move 1 → 0</button>
+      </div>
+      <div class="r-step-row"><span class="r-process-title">Process (2)</span>
+        <button class="btn r-step" data-r-process="B" data-r-step="1">1. Split S(1,2)</button>
+        <button class="btn r-step" data-r-process="B" data-r-step="2">2. Move 1 → 0</button>
+        <button class="btn r-step" data-r-process="B" data-r-step="3">3. Move 2 → 1</button>
+        <button class="btn r-step" data-r-process="B" data-r-step="4">4. Move 1 → Y</button>
+      </div>
+      <div id="r-stage-caption" class="r-stage-caption"></div>
+      <div class="r-layout">
+        <div id="r-plot" aria-label="Selected microscopic T-junction process lattice"></div>
+        <aside class="r-panel">
+          <h3>R overlap / consistency checks</h3>
+          <div id="r-calc" aria-live="polite">Complete both processes to evaluate their overlap.</div>
+          <details open>
+            <summary><strong>Interface corrections for displayed move</strong></summary>
+            <p class="r-caveat">The suggested X and star-projector IDs are <strong>not</strong> guaranteed by the drawing. Verify them against the physical interface. A +1 star projection is a postselected measurement, not an X/Z/CZ gate.</p>
+            <label for="r-edit-x">Extra X qubit IDs, comma-separated</label>
+            <input id="r-edit-x" placeholder="e.g. 42, 73" aria-label="Interface X correction qubit IDs"/>
+            <label for="r-edit-stars">Complete star IDs to project onto A=+1</label>
+            <input id="r-edit-stars" placeholder="e.g. 5, 8, 9" aria-label="Interface projected star IDs"/>
+            <button class="btn" id="r-save-adjust" disabled>Apply to this movement (both processes)</button>
+          </details>
+          <p class="r-caveat">The calculation uses the exact chronological X/R/CZ gates and ordered P=(I+A)/2 projectors. It does not presuppose that s1 or s2 is a semion. The small-patch exact solver runs when there are at most 16 complete stars.</p>
+        </aside>
+      </div>
+    </section>
   </div>
 
   <script>
@@ -1456,6 +1525,7 @@ def build_interactive_lattice_html(lattice) -> str:
     // fresh R/X/CZ circuit, instead of replacing or toggling the old one.
     // Z-occupied and R-only sites are not eligible for a new semion spine.
     function canPlaceSOnQubit(id) {
+      if (rCompiling) return true; // independent microscopic-R workspace
       const localGates = operationLog.filter(ev=>
         ev.qubits.length===1 && ev.qubits[0]===id
       ).map(ev=>ev.type);
@@ -3185,6 +3255,371 @@ def build_interactive_lattice_html(lattice) -> str:
         event.preventDefault();
         addQubitBtn.click();
       }
+    });
+
+    // ====================================================================
+    // Microscopic R workbench — independent of the editable lattice.
+    // This is a diagnostic protocol, NOT an assumed semion phase.
+    // ====================================================================
+    const rSelect=document.getElementById('r-select');
+    const rStudio=document.getElementById('r-studio');
+    const rPlot=document.getElementById('r-plot');
+    const rCalc=document.getElementById('r-calc');
+    const rOverview=document.getElementById('r-overview');
+    const rEditX=document.getElementById('r-edit-x');
+    const rEditStars=document.getElementById('r-edit-stars');
+    const rSaveAdjust=document.getElementById('r-save-adjust');
+    const rStepButtons=Array.from(document.querySelectorAll('.r-step'));
+    const rSequences={A:['S','Y','M21','M0'],B:['S','M0','M21','Y']};
+    const rDescriptions={S:'Vacuum-pair splitting S(1,2)',Y:'Move 1 → Y',M21:'Move 2 → 1',M0:'Move 1 → 0'};
+    let rSelectedKind=null,rGeom=null,rSegments=null;
+    let rActiveProcess='A',rActiveStep=0;
+    let rAdjust={Y:{x:[],stars:[]},M21:{x:[],stars:[]},M0:{x:[],stars:[]}};
+    let rCompleted={A:0,B:0};
+    let rExactCache=null,rCalcToken=0;
+    let rCompiling=false;
+
+    function rResize() {
+      // Streamlit HTML components accept the standard component height message.
+      if(window.parent && window.parent!==window) {
+        const h=Math.max(810,document.documentElement.scrollHeight+24);
+        window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setFrameHeight',height:h},'*');
+      }
+    }
+    function rEscape(t) {return String(t).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function rPoint(id) {return siteById.get(id);}
+    function rNearSite(x,y) {return siteData.find(s=>Math.hypot(s.x-x,s.y-y)<1e-5)?.id;}
+    function rWalk(start,dx,dy,n) {
+      let path=[start];const startSite=rPoint(start);
+      for(let k=1;k<n;k++) {
+        const next=rNearSite(startSite.x+k*dx,startSite.y+k*dy);
+        if(next===undefined||!sStraightNeighbors.has(pairKey(path[path.length-1],next)))return null;
+        path.push(next);
+      }
+      return path;
+    }
+    function rMakeRibbon(path,kind) {
+      const was=anyonKind; const saved= rCompiling;
+      anyonKind=kind;rCompiling=true;
+      try {
+        const built=buildSSpine(path);
+        if(!built||!built.xIds.length)return null;
+        const cz=compileSDecorations(built);
+        if(cz===null)return null;
+        const events=cz.map(qs=>({type:'CZ',qubits:[...qs],source:'r-ribbon'}));
+        for(const q of built.xIds) {
+          const order=built.gateOrder.get(q);
+          if(order==='XR') {events.push({type:'R',qubits:[q],source:'r-ribbon'});events.push({type:'X',qubits:[q],source:'r-ribbon'});}
+          else if(order==='RX') {events.push({type:'X',qubits:[q],source:'r-ribbon'});events.push({type:'R',qubits:[q],source:'r-ribbon'});}
+          else events.push({type:'X',qubits:[q],source:'r-ribbon'});
+        }
+        return {base:path,events,cz,ordered:[...built.gateOrder.entries()],xSites:built.xIds};
+      } finally {anyonKind=was;rCompiling=saved;}
+    }
+    function rFindGeometry(kind) {
+      const xs=siteData.map(s=>s.x),ys=siteData.map(s=>s.y);
+      const xmid=(Math.min(...xs)+Math.max(...xs))/2,ymid=(Math.min(...ys)+Math.max(...ys))/2;
+      const rt=Math.sqrt(3)/2;
+      const dirs=[[.5,-rt],[-.5,-rt],[.5,rt],[-.5,rt]];
+      const possibilities=[];
+      for(const s of siteData) {
+        for(const diag of dirs) {
+          const initial=rWalk(s.id,1,0,4), right=initial?initial.at(-1):null;
+          const left=rWalk(s.id,-1,0,4);
+          const move21=right!==null?rWalk(right,-1,0,4):null;
+          const diagPath=rWalk(s.id,diag[0],diag[1],4);
+          if(!initial||!left||!move21||!diagPath)continue;
+          // The first qubit of each movement is NEXT to its previous endpoint.
+          const arr={S:initial,Y:diagPath.slice(1),M21:move21.slice(1),M0:left.slice(1)};
+          if(Object.values(arr).some(p=>p.length<2))continue;
+          // BuildSSpine uses a genuinely directed triangle rule.
+          const built=Object.fromEntries(Object.entries(arr).map(([k,p])=>[k,rMakeRibbon(p,kind)]));
+          if(Object.values(built).some(p=>!p))continue;
+          const distance=Math.hypot(s.x-xmid,s.y-ymid);
+          const edgeCost=Math.max(0,3.0-rPoint(left.at(-1)).x)+Math.max(0,rPoint(right).x-Math.max(...xs)+3);
+          possibilities.push({distance:distance+edgeCost,geom:{q0:left.at(-1),q1:s.id,q2:right,qY:diagPath.at(-1),paths:arr,diagnosticDirection:diag},segments:built});
+        }
+      }
+      possibilities.sort((a,b)=>a.distance-b.distance);
+      return possibilities[0]||null;
+    }
+    function rFluxIds(events) {
+      const xcounts=new Set();for(const ev of events)if(ev.type==='X'&&ev.qubits.length===1){const q=ev.qubits[0];if(xcounts.has(q))xcounts.delete(q);else xcounts.add(q);}
+      return triangleData.filter(t=>t.qubits.filter(q=>xcounts.has(q)).length%2===1);
+    }
+    function rCorrectionAuto(move,geom,segments) {
+      const srcId=move==='M21'?geom.q2:geom.q1, src=rPoint(srcId);
+      const flux=new Set(rFluxIds([...segments.S.events,...segments[move].events]).map(t=>t.id));
+      const matching=[];
+      for(const q of siteData) {
+        if(Math.hypot(q.x-src.x,q.y-src.y)>2.3)continue;
+        const touched=triangleData.filter(t=>t.qubits.includes(q.id));
+        const gain=touched.filter(t=>flux.has(t.id)).length*2-touched.length;
+        if(gain<=0)continue;
+        matching.push({q:q.id,gain,distance:Math.hypot(q.x-src.x,q.y-src.y)});
+      }
+      matching.sort((a,b)=>b.gain-a.gain||a.distance-b.distance||a.q-b.q);
+      return matching.length?[matching[0].q]:[];
+    }
+    function rStarsAuto(move,geom) {
+      const near=rPoint(move==='M21'?geom.q2:geom.q1),count=move==='Y'?4:3;
+      return starData.slice().sort((a,b)=>Math.hypot(a.center[0]-near.x,a.center[1]-near.y)-Math.hypot(b.center[0]-near.x,b.center[1]-near.y)).slice(0,count).map(s=>s.id);
+    }
+    function rSetup(kind) {
+      rSelectedKind=kind;rExactCache=null;rCalcToken++;
+      const model=rFindGeometry(kind);
+      rGeom=model?.geom||null;rSegments=model?.segments||null;
+      rAdjust={Y:{x:[],stars:[]},M21:{x:[],stars:[]},M0:{x:[],stars:[]}};
+      rCompleted={A:0,B:0};rActiveProcess='A';rActiveStep=0;
+      rStudio.hidden=!kind;setTimeout(rResize,120);
+      if(!kind)return;
+      if(!model){rOverview.textContent='No complete T-junction fits this open patch. Increase the lattice size (for example 8 × 8).';rCalc.textContent='No R result: a complete junction could not be constructed.';rUpdateButtons();return;}
+      for(const move of ['Y','M21','M0']){
+        rAdjust[move]={x:rCorrectionAuto(move,rGeom,rSegments),stars:rStarsAuto(move,rGeom)};
+      }
+      rOverview.innerHTML=`Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>Corrections and projectors below are initial suggestions, not independently certified.</strong>`;
+      rCalc.innerHTML='<p>Complete both four-step processes to compare their final quantum states. The interface corrections must be validated first.</p>';
+      rUpdateButtons();rRenderStep();setTimeout(rResize,350);
+    }
+    function rStepEvents(which,step) {
+      const events=[];
+      for(let j=0;j<step;j++){
+        const move=rSequences[which][j],seg=rSegments[move];
+        for(const ev of seg.events)events.push({...ev,step:j+1,move});
+        if(move!=='S') {
+          for(const q of rAdjust[move].x)events.push({type:'X',qubits:[q],source:'interface',step:j+1,move});
+          for(const starId of rAdjust[move].stars)events.push({type:'P',starId,source:'interface',step:j+1,move});
+        }
+      }
+      return events;
+    }
+    function rUnitaryOnly(events){return events.filter(e=>e.type!=='P');}
+    function rTriangleShapes(events) {
+      const triangles=rFluxIds(events),shapes=[];
+      for(const t of triangles){const path=polygonPath(t.qubits);if(!path)continue;shapes.push({type:'path',path,fillcolor:'rgba(248,113,113,.14)',line:{color:'#ef4444',width:1.7,dash:'dot'},layer:'below'});}
+      return shapes;
+    }
+    function rRenderStep() {
+      if(!rSelectedKind||!rGeom)return;
+      const active=rSequences[rActiveProcess][Math.max(0,rActiveStep-1)];
+      const events=rStepEvents(rActiveProcess,rActiveStep),visibleEvents=rUnitaryOnly(events);
+      const outlines=rTriangleShapes(visibleEvents);
+      const pp=rGeom;
+      const points=[['0',pp.q0],['1',pp.q1],['2',pp.q2],['Y',pp.qY]];
+      const traceEdges={type:'scatter',mode:'lines',x:baseEdgeX,y:baseEdgeY,line:{width:1,color:'#94a3b8'},hoverinfo:'skip',name:'lattice',showlegend:false};
+      const traceSites={type:'scatter',mode:'markers',x:siteData.map(s=>s.x),y:siteData.map(s=>s.y),marker:{size:7,color:siteData.map(s=>s.color),line:{width:.5,color:'#334155'}},customdata:siteData.map(s=>s.id),text:siteData.map(s=>'Qubit '+s.id),hovertemplate:'%{text}<extra></extra>',name:'qubits',showlegend:false};
+      const xTrace={type:'scatter',mode:'markers+text',x:[],y:[],text:[],marker:{size:12,symbol:'circle-open',line:{width:2,color:'#047857'}},textposition:'top center',textfont:{size:12,color:'#0f172a'},hovertext:[],hoverinfo:'text',name:'applied single-qubit gates',showlegend:false};
+      const flags=new Map();
+      for(const ev of visibleEvents)if(ev.qubits.length===1){const q=ev.qubits[0];if(!flags.has(q))flags.set(q,[]);flags.get(q).push(ev.type);}
+      for(const [q,ops] of flags){const s=rPoint(q);xTrace.x.push(s.x);xTrace.y.push(s.y);xTrace.text.push(ops.length>3?ops.at(-2)+ops.at(-1)+'×'+Math.floor(ops.length/2):ops.join(''));xTrace.hovertext.push('Q'+q+': '+ops.join(' → '));}
+      const czTraces=[];let ci=0;
+      for(const ev of visibleEvents)if(ev.type==='CZ'){
+        const [a,b]=ev.qubits,s1=rPoint(a),s2=rPoint(b),cx=(s1.x+s2.x)/2,cy=(s1.y+s2.y)/2+.22+.07*(ci%5);ci++;
+        const x=[],y=[];for(let k=0;k<=15;k++){let t=k/15;x.push((1-t)**2*s1.x+2*(1-t)*t*cx+t*t*s2.x);y.push((1-t)**2*s1.y+2*(1-t)*t*cy+t*t*s2.y);}
+        czTraces.push({type:'scatter',mode:'lines',x,y,line:{color:'#7c3aed',width:1.5},hoverinfo:'text',text:`CZ(Q${a},Q${b})`,showlegend:false});
+      }
+      const projectorShapes=[],projectorTrace={type:'scatter',mode:'markers+text',x:[],y:[],text:[],textposition:'middle center',textfont:{size:10,color:'#0369a1'},marker:{size:26,color:'rgba(56,189,248,.15)',line:{width:1,color:'#0284c7'}},hovertext:[],hoverinfo:'text',showlegend:false};
+      for(const ev of events)if(ev.type==='P'){
+        const st=starById.get(ev.starId);if(!st)continue;
+        const path=polygonPath(st.inner_qubits);if(path)projectorShapes.push({type:'path',path,fillcolor:'rgba(14,165,233,.10)',line:{width:1.5,color:'#0284c7',dash:'dot'},layer:'below'});
+        projectorTrace.x.push(st.center[0]);projectorTrace.y.push(st.center[1]);projectorTrace.text.push('P'+st.id);projectorTrace.hovertext.push('Project (I+A_'+st.id+')/2');
+      }
+      const allStarCenters={type:'scatter',mode:'markers',x:starData.map(s=>s.center[0]),y:starData.map(s=>s.center[1]),marker:{size:10,color:'#0284c7',opacity:.28,symbol:'diamond'},customdata:starData.map(s=>s.id),hovertemplate:'Star A%{customdata}<extra></extra>',name:'r-star-centers',showlegend:false};
+      const labels={type:'scatter',mode:'markers+text',x:points.map(p=>rPoint(p[1]).x),y:points.map(p=>rPoint(p[1]).y),text:points.map(p=>p[0]),textposition:'bottom center',textfont:{size:15,color:'#0f172a'},marker:{size:17,symbol:'circle-open',line:{width:2,color:'#0f172a'}},hoverinfo:'skip',showlegend:false};
+      const xvals=siteData.map(s=>s.x),yvals=siteData.map(s=>s.y);
+      const layout={margin:{l:26,r:18,t:26,b:24},height:530,showlegend:false,hovermode:'closest',uirevision:'r-study',paper_bgcolor:'#fff',plot_bgcolor:'#fff',xaxis:{visible:false,range:[Math.min(...xvals)-.8,Math.max(...xvals)+.8]},yaxis:{visible:false,scaleanchor:'x',scaleratio:1,range:[Math.min(...yvals)-.8,Math.max(...yvals)+.8]},shapes:[...outlines,...projectorShapes]};
+      Promise.resolve(Plotly.react(rPlot,[traceEdges,traceSites,...czTraces,xTrace,allStarCenters,projectorTrace,labels],layout,{displaylogo:false,responsive:true,scrollZoom:true})).then(()=>{
+        if(!rPlot._rClickBound && typeof rPlot.on==='function') {
+          rPlot.on('plotly_click',rHandlePlotClick);rPlot._rClickBound=true;
+        }
+      }).catch(console.error);
+      if(rActiveStep>1){const move=rSequences[rActiveProcess][rActiveStep-1];rEditX.value=rAdjust[move].x.join(', ');rEditStars.value=rAdjust[move].stars.join(', ');rSaveAdjust.disabled=false;}else{rEditX.value='';rEditStars.value='';rSaveAdjust.disabled=true;}
+      rUpdateStatus(events,active);setTimeout(rResize,220);
+    }
+    function rUpdateButtons(){for(const b of rStepButtons){const seq=b.dataset.rProcess,st=Number(b.dataset.rStep);b.classList.toggle('active',rActiveProcess===seq&&rActiveStep===st);b.classList.toggle('r-done',rCompleted[seq]>=st);}}
+    function rUpdateStatus(events,active){
+      const counts={X:0,R:0,CZ:0,P:0};events.forEach(e=>counts[e.type]++);
+      const fluxes=rFluxIds(rUnitaryOnly(events));
+      const label=rActiveStep?`${rActiveProcess} · Step ${rActiveStep}: ${rDescriptions[active]}`:'Choose one of the process buttons.';
+      const value=`${counts.X} X · ${counts.R} R · ${counts.CZ} CZ · ${counts.P} star projectors; ${fluxes.length} excited triangles before projectors`;
+      const diff=rActiveStep>1?`Interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}`:'';
+      document.getElementById('r-stage-caption').innerHTML=`<strong>${rEscape(label)}</strong><div>${rEscape(value)}</div><div>${rEscape(diff)}</div>`;
+      if(rCompleted.A===4 && rCompleted.B===4)rComputeR();
+      else rCalc.innerHTML=`<p><strong>Not evaluated yet.</strong> Complete both four-stage processes. For each move, examine the suggested interface X and projector star IDs and correct them as needed.</p><div class="r-math">R<sub>candidate</sub> = &lt;Ψ<sub>2</sub>|Ψ<sub>1</sub>&gt; / (‖Ψ<sub>1</sub>‖‖Ψ<sub>2</sub>‖)</div>`;
+    }
+    function rFormatComplex(z){return `${z.re.toFixed(6)} ${z.im<0?'−':'+'} ${Math.abs(z.im).toFixed(6)} i`;}
+    function rWholeStateChecks(events,expected0,expectedY){
+      const tris=rFluxIds(rUnitaryOnly(events));
+      const colored={L:[],Y:[]};
+      const p0=rPoint(expected0),py=rPoint(expectedY);
+      for(const t of tris){let d0=Math.hypot(t.center[0]-p0.x,t.center[1]-p0.y),dy=Math.hypot(t.center[0]-py.x,t.center[1]-py.y);colored[d0<=dy?'L':'Y'].push(t);}
+      const ok=Object.values(colored).every(arr=>arr.length===3 && new Set(arr.map(t=>t.color)).size===3);
+      return {ok,fluxIds:tris.map(t=>t.id),colored};
+    }
+    function rComputeR(){
+      const A=rStepEvents('A',4),B=rStepEvents('B',4),cA=rWholeStateChecks(A,rGeom.q0,rGeom.qY),cB=rWholeStateChecks(B,rGeom.q0,rGeom.qY);
+      let section=`<p><strong>Two protocol outputs:</strong> (1): ${cA.fluxIds.length} excited triangles; (2): ${cB.fluxIds.length}. ${cA.ok&&cB.ok?'Both have three RGB triangles near each endpoint.':'The final triangle pattern is not two clean RGB endpoints.'}</p>`;
+      if(!cA.ok||!cB.ok)section+='<p class="r-error">Not a calibrated exchange: the final flux syndrome does not match two RGB anyons at 0 and Y.</p>';
+      if(starData.length>16){rCalc.innerHTML=section+`<p><strong>Exact complex overlap unavailable on this grid:</strong> ${starData.length} complete stars would require at least 2<sup>${starData.length}</sup> ground-state amplitudes in this test method. Use a smaller patch (≤16 complete stars) for an exact finite-patch evaluation.</p>`;return;}
+      rCalc.innerHTML=section+'<p>Computing projected-state overlap…</p>';
+      const token=++rCalcToken;
+      setTimeout(()=>{
+        if(token!==rCalcToken)return;
+        try {
+          if(!rExactCache)rExactCache=new RExactEngine();
+          const first=rExactCache.run(A),second=rExactCache.run(B);
+          const z=rExactCache.overlap(first,second);
+          const n1=rExactCache.norm(first),n2=rExactCache.norm(second);
+          const w=n1*n2?{re:z.re/(n1*n2),im:z.im/(n1*n2)}:{re:0,im:0};
+          const mag=Math.hypot(w.re,w.im);
+          const phase=mag>1e-10?Math.atan2(w.im,w.re)/Math.PI:null;
+          const checked=[...new Set([...A,...B].filter(ev=>ev.type==='P').map(ev=>ev.starId))];
+          const brokenA=checked.filter(id=>Math.abs(rExactCache.starExpectation(first,id)-1)>1e-7);
+          const brokenB=checked.filter(id=>Math.abs(rExactCache.starExpectation(second,id)-1)>1e-7);
+          const status=(cA.ok&&cB.ok&&brokenA.length===0&&brokenB.length===0&&n1>1e-8&&n2>1e-8&&mag>.995)
+            ? (Math.abs(w.re)<.12 && Math.abs(Math.abs(w.im)-1)<.12 ? (w.im>0?'Candidate +i (semion-like)':'Candidate −i (antisemion-like)') : 'Unit-magnitude phase; not ±i')
+            : 'INCONCLUSIVE — do not identify the anyon from this overlap';
+          section+=`<div class="r-math">‖Ψ₁‖ = ${n1.toFixed(7)}; ‖Ψ₂‖ = ${n2.toFixed(7)}<br>⟨Ψ₂|Ψ₁⟩ = ${rFormatComplex(z)}<br>Normalized overlap = <strong>${rFormatComplex(w)}</strong><br>|overlap| = ${mag.toFixed(6)}${phase===null?'':`; phase = ${phase.toFixed(5)}π`}</div>`;
+          section+=`<p>Final projector check: process (1) ${brokenA.length?'A'+brokenA.join(', A')+' not restored':'all requested stars +1'}; process (2) ${brokenB.length?'A'+brokenB.join(', A')+' not restored':'all requested stars +1'}.</p>`;
+          section+=`<p><strong>${status}</strong></p>`;
+          section+=`<p>Projector success ratios, process (1): ${first.outcomes.map(x=>x.toFixed(4)).join(', ')||'none'}; process (2): ${second.outcomes.map(x=>x.toFixed(4)).join(', ')||'none'}.</p>`;
+          if(mag<.995)section+='<p class="r-error">The two final vectors are not related by a pure phase. Reporting Arg(overlap) as an R-symbol would be incorrect.</p>';
+          section+='<p class="r-caveat">This is an exact finite-open-patch amplitude calculation for the displayed gate and projector choices; it is not an independent certification that the selected endpoints carry a definite s₁/s₂ topological species. The default interface corrections are heuristic and must be physically calibrated.</p>';
+          rCalc.innerHTML=section;setTimeout(rResize,120);
+        }catch(e){rCalc.innerHTML=section+'<p class="r-error">Exact evaluation failed: '+rEscape(e.message)+'</p>';console.error(e);}
+      },15);
+    }
+
+    class RExactEngine {
+      constructor(){
+        this.n=starData.length;if(this.n>16)throw Error('Grid is above 16-star exact-simulation limit');
+        this.dim=1<<this.n;
+        this.parity=new Uint8Array(this.dim);
+        for(let m=1;m<this.dim;m++)this.parity[m]=this.parity[m>>1]^(m&1);
+        this.siteMask=new Uint32Array(siteData.length);
+        this.starX=[];this.starEdges=[];
+        for(let j=0;j<this.n;j++){
+          const star=starData[j];let bits=0n;
+          for(const q of star.x_qubits){this.siteMask[q]|=(1<<j);bits^=qubitBit(q);}
+          this.starX.push(bits);
+          this.starEdges.push(star.cz_edges);
+        }
+        const re=new Float64Array(this.dim),im=new Float64Array(this.dim);re[0]=1;
+        for(let s=0;s<this.n;s++){
+          const p=1<<s;
+          for(let m=0;m<p;m++){
+            const sign=this.czSignOnBase(s,m);
+            re[m|p]=sign*re[m];
+          }
+        }
+        const scale=1/Math.sqrt(this.dim);
+        for(let i=0;i<this.dim;i++)re[i]*=scale;
+        this.initial={re,im,off:new Uint8Array(siteData.length),outcomes:[]};
+      }
+      siteBit(q,index,off){return this.parity[index&this.siteMask[q]]^off[q];}
+      czSignOnBase(starId,index){
+        let sign=1;
+        for(const [a,b] of this.starEdges[starId])if(this.parity[index&this.siteMask[a]]&&this.parity[index&this.siteMask[b]])sign=-sign;
+        return sign;
+      }
+      starSign(starId,index,off){
+        let sign=1;for(const [a,b] of this.starEdges[starId])if(this.siteBit(a,index,off)&&this.siteBit(b,index,off))sign=-sign;
+        return sign;
+      }
+      state(){return {re:this.initial.re.slice(),im:this.initial.im.slice(),off:this.initial.off.slice(),outcomes:[]};}
+      norm(state){let sum=0;for(let i=0;i<this.dim;i++)sum+=state.re[i]**2+state.im[i]**2;return Math.sqrt(sum);}
+      project(state,starId){
+        const r=new Float64Array(this.dim),im=new Float64Array(this.dim),mask=1<<starId;
+        const norm1=this.norm(state)**2;
+        for(let i=0;i<this.dim;i++){
+          const other=i^mask,sg=this.starSign(starId,other,state.off);
+          r[i]=.5*(state.re[i]+sg*state.re[other]);im[i]=.5*(state.im[i]+sg*state.im[other]);
+        }
+        state.re=r;state.im=im;
+        const ratio=norm1>1e-16?this.norm(state)**2/norm1:0;
+        state.outcomes.push(ratio);
+      }
+      gate(state,ev){
+        if(ev.type==='P'){this.project(state,ev.starId);return;}
+        const [a,b]=ev.qubits;
+        if(ev.type==='X'){state.off[a]^=1;return;}
+        if(ev.type==='CZ'){
+          for(let i=0;i<this.dim;i++)if(this.siteBit(a,i,state.off)&&this.siteBit(b,i,state.off)){state.re[i]*=-1;state.im[i]*=-1;}
+        }else if(ev.type==='Z'){
+          for(let i=0;i<this.dim;i++)if(this.siteBit(a,i,state.off)){state.re[i]*=-1;state.im[i]*=-1;}
+        }else if(ev.type==='R'){
+          const c=Math.SQRT1_2;
+          for(let i=0;i<this.dim;i++){
+            const sign=this.siteBit(a,i,state.off)?-1:1,real=state.re[i],imag=state.im[i];
+            state.re[i]=c*(real-sign*imag);state.im[i]=c*(imag+sign*real);
+          }
+        }else throw Error('Unsupported R-study gate '+ev.type);
+      }
+      starExpectation(state,id) {
+        const n=this.dim,mask=1<<id,den=this.norm(state)**2;
+        if(den<1e-20)return NaN;
+        let real=0,imag=0;
+        for(let i=0;i<n;i++){
+          const j=i^mask,sg=this.starSign(id,j,state.off);
+          real+=sg*(state.re[i]*state.re[j]+state.im[i]*state.im[j]);
+          imag+=sg*(state.re[i]*state.im[j]-state.im[i]*state.re[j]);
+        }
+        return real/den;
+      }
+      run(events){const state=this.state();for(const ev of events)this.gate(state,ev);return state;}
+      overlap(A,B){
+        // Return <B|A>, accounting for different X-offset representatives.
+        let delta=0n;for(let q=0;q<siteData.length;q++)if(A.off[q]!==B.off[q])delta^=qubitBit(q);
+        const basis=new Map();
+        for(let j=0;j<this.n;j++){
+          let v=this.starX[j],comb=1<<j;
+          while(v){const p=v.toString(2).length-1,prev=basis.get(p);if(prev){v^=prev.vec;comb^=prev.comb;}else{basis.set(p,{vec:v,comb});break;}}
+        }
+        let shift=0;
+        while(delta){const p=delta.toString(2).length-1,prev=basis.get(p);if(!prev)return {re:0,im:0};delta^=prev.vec;shift^=prev.comb;}
+        let re=0,im=0;
+        for(let i=0;i<this.dim;i++){
+          const j=i^shift;
+          re+=B.re[j]*A.re[i]+B.im[j]*A.im[i];
+          im+=B.re[j]*A.im[i]-B.im[j]*A.re[i];
+        }
+        return {re,im};
+      }
+    }
+
+    rSelect.addEventListener('change',()=>rSetup(rSelect.value));
+    // Click the second canvas to edit interface X and star projector choices.
+    function rHandlePlotClick(event){
+      if(!rGeom||rActiveStep<=1||!event?.points?.length)return;
+      const p=event.points[0],name=p.data?.name||p.fullData?.name;
+      const move=rSequences[rActiveProcess][rActiveStep-1];
+      if(name==='qubits' && Number.isInteger(Number(p.customdata))) {
+        const id=Number(p.customdata),arr=rAdjust[move].x;
+        rAdjust[move].x=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
+      } else if(name==='r-star-centers' && Number.isInteger(Number(p.customdata))) {
+        const id=Number(p.customdata),arr=rAdjust[move].stars;
+        rAdjust[move].stars=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
+      } else return;
+      rCalcToken++;rRenderStep();
+    }
+    for(const btn of rStepButtons){
+      btn.addEventListener('click',()=>{
+        if(!rGeom)return;
+        rActiveProcess=btn.dataset.rProcess;rActiveStep=Number(btn.dataset.rStep);
+        rCompleted[rActiveProcess]=Math.max(rCompleted[rActiveProcess],rActiveStep);
+        rUpdateButtons();rRenderStep();
+      });
+    }
+    rSaveAdjust.addEventListener('click',()=>{
+      if(rActiveStep<=1||!rGeom)return;
+      const move=rSequences[rActiveProcess][rActiveStep-1];
+      const parse=(s)=>s.split(/[\s,;]+/).map(x=>x.trim()).filter(x=>x!=='').map(Number);
+      const qs=parse(rEditX.value),stars=parse(rEditStars.value);
+      if(qs.some(q=>!Number.isInteger(q)||!siteById.has(q))||stars.some(q=>!Number.isInteger(q)||!starById.has(q))){
+        rCalc.innerHTML='<p class="r-error">Invalid qubit or complete-star ID.</p>';return;
+      }
+      if(qs.length>8||stars.length>8){rCalc.innerHTML='<p class="r-error">Interface has too many proposed corrections; review the geometry.</p>';return;}
+      rAdjust[move]={x:qs,stars};rCalcToken++;rRenderStep();
     });
 
     initializeQubitSelector();

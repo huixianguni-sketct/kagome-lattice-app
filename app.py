@@ -16,8 +16,8 @@ st.set_page_config(
 
 with st.sidebar:
     st.header("Lattice")
-    nx = st.slider("Unit cells along $a_1$", min_value=1, max_value=20, value=12)
-    ny = st.slider("Unit cells along $a_2$", min_value=1, max_value=20, value=12)
+    nx = st.slider("Unit cells along $a_1$", min_value=1, max_value=16, value=8)
+    ny = st.slider("Unit cells along $a_2$", min_value=1, max_value=16, value=8)
 
 
 st.title("Interactive Kagome Qubit Lattice")
@@ -32,4 +32,4 @@ component_html = build_interactive_lattice_html(lattice)
 # Vertex interaction happens inside this client-side Plotly component.  Qubit
 # clicks therefore do not trigger a Streamlit Python rerun.  Changing nx or ny
 # does rerun the app and currently resets the operator annotations.
-components.html(component_html, height=790, scrolling=False)
+components.html(component_html, height=840, scrolling=True)
