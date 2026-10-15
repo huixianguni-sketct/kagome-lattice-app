@@ -588,6 +588,16 @@ def build_interactive_lattice_html(lattice) -> str:
     .r-error{color:#9f1239;font-weight:700;}
     .r-caveat{color:#64748b;font-size:11px;}
     .r-fixed-note{font-size:12px;font-weight:700;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;padding:7px;border-radius:6px;}
+    .r-validation{padding-bottom:10px;}
+    .r-validation h3{font-size:14px;margin:0 0 7px;}
+    .r-validation select{width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#0f172a;font-size:12px;}
+    .r-validation table{width:100%;border-collapse:collapse;font-size:11px;margin:8px 0;}
+    .r-validation th,.r-validation td{border-bottom:1px solid #e2e8f0;padding:5px 3px;text-align:left;vertical-align:top;}
+    .r-validation th{color:#475569;font-weight:700;}
+    .r-v-ok{color:#166534;font-weight:700;}.r-v-bad{color:#9f1239;font-weight:700;}.r-v-neutral{color:#64748b;}
+    .r-validation .r-validation-codes{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;font-size:10px;}
+    .r-validation .r-v-row{margin:6px 0;}
+    .r-validation .r-v-hint{color:#64748b;font-size:11px;margin:5px 0;}
     @media(max-width:900px){.r-layout{grid-template-columns:1fr}.r-panel{max-height:none}}
 
   </style>
@@ -733,7 +743,19 @@ def build_interactive_lattice_html(lattice) -> str:
       <div class="r-layout">
         <div id="r-plot" aria-label="Selected microscopic T-junction process lattice"></div>
         <aside class="r-panel">
-          <h3>R overlap / consistency checks</h3>
+          <section class="r-validation" aria-label="Validate selected microscopic movement">
+            <h3>Interface validation</h3>
+            <p class="r-v-hint">Inspect each stage of the currently selected process. This only tests the specified finite-patch transport circuit; it does not assume a semion phase.</p>
+            <label for="r-checkpoint">Display on lattice</label>
+            <select id="r-checkpoint" aria-label="Displayed checkpoint within selected movement">
+              <option value="before">Before this movement</option>
+              <option value="ribbon">After fresh s ribbon</option>
+              <option value="x">After interface X</option>
+              <option value="projected" selected>After interface projectors</option>
+            </select>
+            <div id="r-validation-content" aria-live="polite">Choose a movement button to inspect its interface.</div>
+          </section>
+          <h3 style="margin-top:14px;border-top:1px solid #e2e8f0;padding-top:10px;">R overlap / consistency checks</h3>
           <div id="r-calc" aria-live="polite">Complete both processes to evaluate their overlap.</div>
           <details open>
             <summary><strong>Interface corrections for displayed move</strong></summary>
@@ -3267,6 +3289,8 @@ def build_interactive_lattice_html(lattice) -> str:
     const rStudio=document.getElementById('r-studio');
     const rPlot=document.getElementById('r-plot');
     const rCalc=document.getElementById('r-calc');
+    const rCheckpointSelect=document.getElementById('r-checkpoint');
+    const rValidationContent=document.getElementById('r-validation-content');
     const rOverview=document.getElementById('r-overview');
     const rEditX=document.getElementById('r-edit-x');
     const rEditStars=document.getElementById('r-edit-stars');
@@ -3279,7 +3303,8 @@ def build_interactive_lattice_html(lattice) -> str:
     let rActiveProcess='A',rActiveStep=0;
     let rAdjust={Y:{x:[],stars:[]},M21:{x:[],stars:[]},M0:{x:[],stars:[]}};
     let rCompleted={A:0,B:0};
-    let rExactCache=null,rCalcToken=0;
+    let rExactCache=null,rCalcToken=0,rValidationToken=0;
+    let rCheckpoint='projected';
     let rCompiling=false;
 
     function rResize() {
@@ -3373,7 +3398,8 @@ def build_interactive_lattice_html(lattice) -> str:
       return starData.slice().sort((a,b)=>Math.hypot(a.center[0]-near.x,a.center[1]-near.y)-Math.hypot(b.center[0]-near.x,b.center[1]-near.y)).slice(0,count).map(s=>s.id);
     }
     function rSetup(kind) {
-      rSelectedKind=kind;rExactCache=null;rCalcToken++;
+      rSelectedKind=kind;rExactCache=null;rCalcToken++;rValidationToken++;rCheckpoint='projected';rCheckpointSelect.value=rCheckpoint;
+      rValidationContent.textContent='Choose one of the movement buttons to inspect its checkpoints.';
       const model=rFindGeometry(kind);
       rGeom=model?.geom||null;rSegments=model?.segments||null;
       rAdjust={Y:{x:[],stars:[]},M21:{x:[],stars:[]},M0:{x:[],stars:[]}};
@@ -3405,6 +3431,57 @@ def build_interactive_lattice_html(lattice) -> str:
       return events;
     }
     function rUnitaryOnly(events){return events.filter(e=>e.type!=='P');}
+    function rStageEvents(which,step,checkpoint='projected'){
+      if(step<1)return [];
+      if(checkpoint==='projected')return rStepEvents(which,step);
+      const previous=rStepEvents(which,step-1);
+      const current=rStepEvents(which,step).slice(previous.length);
+      if(checkpoint==='before')return previous;
+      if(checkpoint==='ribbon')return [...previous,...current.filter(e=>e.source==='r-ribbon')];
+      if(checkpoint==='x')return [...previous,...current.filter(e=>e.type!=='P')];
+      return [...previous,...current];
+    }
+    function rExpectedPair(which,step){
+      const endpoints=[rGeom.q1,rGeom.q2];
+      for(let k=1;k<step-1;k++){
+        const move=rSequences[which][k];
+        const old=move==='M21'?rGeom.q2:rGeom.q1;
+        const dest=move==='M21'?rGeom.q1:move==='Y'?rGeom.qY:rGeom.q0;
+        const index=endpoints.indexOf(old);
+        if(index>=0)endpoints[index]=dest;
+      }
+      return endpoints;
+    }
+    function rMoveEndpoints(which,step){
+      const before=rExpectedPair(which,step),move=rSequences[which][step-1];
+      const source=move==='M21'?rGeom.q2:rGeom.q1;
+      const destination=move==='M21'?rGeom.q1:move==='Y'?rGeom.qY:rGeom.q0;
+      const after=before.slice(),i=after.indexOf(source);
+      if(i>=0)after[i]=destination;
+      const spectator=before.find(q=>q!==source);
+      return {source,destination,spectator,before,after};
+    }
+    // The RGB endpoint-locality radius is a GEOMETRIC diagnostic, not a
+    // microscopic projector or a proof that the anyon charge is semionic.
+    function rEndpointFluxReport(events,endpoints){
+      const flux=rFluxIds(rUnitaryOnly(events));
+      const groups=endpoints.map(q=>({q,items:[],maxDist:0}));
+      for(const t of flux){
+        const dd=endpoints.map(q=>Math.hypot(t.center[0]-rPoint(q).x,t.center[1]-rPoint(q).y));
+        const j=dd[0]<=dd[1]?0:1;groups[j].items.push(t);groups[j].maxDist=Math.max(groups[j].maxDist,dd[j]);
+      }
+      const countRGB=groups.every(g=>g.items.length===3&&new Set(g.items.map(t=>t.color)).size===3);
+      const withinRadius=groups.every(g=>g.maxDist<=1.85);
+      return {flux,groups,countRGB,withinRadius,ok:flux.length===6&&countRGB&&withinRadius};
+    }
+    function rNearInterfaceTriangles(events,site,radius=1.15){
+      const p=rPoint(site);return rFluxIds(rUnitaryOnly(events)).filter(t=>Math.hypot(t.center[0]-p.x,t.center[1]-p.y)<radius);
+    }
+    function rSpectatorFlux(events,site,radius=1.85){
+      const p=rPoint(site);return rFluxIds(rUnitaryOnly(events)).filter(t=>Math.hypot(t.center[0]-p.x,t.center[1]-p.y)<=radius).map(t=>t.id).sort((a,b)=>a-b);
+    }
+    function rSameIds(a,b){return a.length===b.length&&a.every((v,i)=>v===b[i]);}
+
     function rTriangleShapes(events) {
       const triangles=rFluxIds(events),shapes=[];
       for(const t of triangles){const path=polygonPath(t.qubits);if(!path)continue;shapes.push({type:'path',path,fillcolor:'rgba(248,113,113,.14)',line:{color:'#ef4444',width:1.7,dash:'dot'},layer:'below'});}
@@ -3413,7 +3490,7 @@ def build_interactive_lattice_html(lattice) -> str:
     function rRenderStep() {
       if(!rSelectedKind||!rGeom)return;
       const active=rSequences[rActiveProcess][Math.max(0,rActiveStep-1)];
-      const events=rStepEvents(rActiveProcess,rActiveStep),visibleEvents=rUnitaryOnly(events);
+      const events=rStageEvents(rActiveProcess,rActiveStep,rCheckpoint),visibleEvents=rUnitaryOnly(events);
       const outlines=rTriangleShapes(visibleEvents);
       const pp=rGeom;
       const points=[['0',pp.q0],['1',pp.q1],['2',pp.q2],['Y',pp.qY]];
@@ -3455,13 +3532,13 @@ def build_interactive_lattice_html(lattice) -> str:
       }else{
         rFixedXNote.textContent='';rEditX.value='';rEditStars.value='';rSaveAdjust.disabled=true;
       }
-      rUpdateStatus(events,active);setTimeout(rResize,220);
+      rUpdateStatus(events,active);rValidateSelected();setTimeout(rResize,220);
     }
     function rUpdateButtons(){for(const b of rStepButtons){const seq=b.dataset.rProcess,st=Number(b.dataset.rStep);b.classList.toggle('active',rActiveProcess===seq&&rActiveStep===st);b.classList.toggle('r-done',rCompleted[seq]>=st);}}
     function rUpdateStatus(events,active){
       const counts={X:0,R:0,CZ:0,P:0};events.forEach(e=>counts[e.type]++);
       const fluxes=rFluxIds(rUnitaryOnly(events));
-      const label=rActiveStep?`${rActiveProcess} · Step ${rActiveStep}: ${rDescriptions[active]}`:'Choose one of the process buttons.';
+      const label=rActiveStep?`${rActiveProcess} · Step ${rActiveStep}: ${rDescriptions[active]} · checkpoint: ${rCheckpoint}`:'Choose one of the process buttons.';
       const value=`${counts.X} X · ${counts.R} R · ${counts.CZ} CZ · ${counts.P} star projectors; ${fluxes.length} excited triangles before projectors`;
       const diff=rActiveStep>1?
         `${active==='M21'?`Fixed X at position 2: q${rGeom.q2}; `:''}Additional interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}`:'';
@@ -3512,6 +3589,116 @@ def build_interactive_lattice_html(lattice) -> str:
       },15);
     }
 
+    function rValidationContext(which,step,engine){
+      const move=rSequences[which][step-1],info=rMoveEndpoints(which,step);
+      const beforeEv=rStageEvents(which,step,'before');
+      const ribbonEv=rStageEvents(which,step,'ribbon');
+      const xEv=rStageEvents(which,step,'x');
+      const projEv=rStageEvents(which,step,'projected');
+      const eventSnapshots=[beforeEv,ribbonEv,xEv,projEv];
+      const stageEvents=[ribbonEv.slice(beforeEv.length),xEv.slice(ribbonEv.length),projEv.slice(xEv.length)];
+      let state=null,stageStates=null,results=[];
+      if(engine){
+        state=engine.run(beforeEv);stageStates=[engine.copy(state)];
+        for(const events of stageEvents){
+          for(const ev of events)engine.gate(state,ev);
+          stageStates.push(engine.copy(state));
+        }
+      }
+      const projectors=projEv.slice(xEv.length).filter(e=>e.type==='P');
+      const checked=[...new Set(projectors.map(e=>e.starId))];
+      const nearby=starData.slice().sort((a,b)=>{
+        const p=rPoint(info.source);
+        return Math.hypot(a.center[0]-p.x,a.center[1]-p.y)-Math.hypot(b.center[0]-p.x,b.center[1]-p.y);
+      }).slice(0,Math.max(6,checked.length)).map(s=>s.id);
+      const starIds=[...new Set([...checked,...nearby])];
+      for(let k=0;k<eventSnapshots.length;k++){
+        const report=rEndpointFluxReport(eventSnapshots[k],k===0?info.before:info.after);
+        const fluxNearSource=rNearInterfaceTriangles(eventSnapshots[k],info.source);
+        const spectatorIds=rSpectatorFlux(eventSnapshots[k],info.spectator);
+        const expectations=state?Object.fromEntries(starIds.map(id=>[id,engine.starExpectation(stageStates[k],id)])):null;
+        results.push({events:eventSnapshots[k],report,fluxNearSource,spectatorIds,expectations,norm:state?engine.norm(stageStates[k]):null});
+      }
+      const beforeSpectator=rSpectatorFlux(beforeEv,info.spectator);
+      const spectatorUnchanged=rSameIds(beforeSpectator,results[3].spectatorIds);
+      const sourceClean=results[2].fluxNearSource.length===0;
+      const restored=state?checked.filter(id=>!Number.isFinite(results[3].expectations[id])||Math.abs(results[3].expectations[id]-1)>1e-7):null;
+      const nPrior=stageStates?stageStates[0].outcomes.length:0;
+      const newRatios=stageStates?stageStates[3].outcomes.slice(nPrior):null;
+      const nonzero=newRatios?newRatios.every(x=>x>1e-12):null;
+      const pCombined=newRatios?newRatios.reduce((a,b)=>a*b,1):null;
+      return {which,step,move,info,results,starIds,checked,projectors,restored,newRatios,nonzero,pCombined,spectatorUnchanged,sourceClean,inputValid:results[0].report.ok};
+    }
+    function rVFlag(value,yes,no,unknown='not evaluated'){
+      if(value===null||value===undefined)return `<span class="r-v-neutral">${unknown}</span>`;
+      return `<span class="${value?'r-v-ok':'r-v-bad'}">${value?yes:no}</span>`;
+    }
+    function rVContextSummary(ctx){
+      const fin=ctx.results[3], report=fin.report;
+      return `<tr><td>${ctx.which==='A'?'(1): Y spectator':'(2): 0 spectator'}</td><td>${rVFlag(ctx.sourceClean,'clear','residual flux')}</td><td>${rVFlag(report.ok,'RGB × 2','mismatch')}</td><td>${rVFlag(ctx.spectatorUnchanged,'unchanged','changed')}</td><td>${rVFlag(ctx.restored===null?null:ctx.restored.length===0,'all +1','not all +1')}</td></tr>`;
+    }
+    function rValidationHTML(ctx,other){
+      const v=ctx.results, labels=['Before move','After new ribbon','After interface X','After projections'];
+      const info=ctx.info,validFlux=v[3].report;
+      let html=`<p class="r-v-row"><strong>${ctx.which==='A'?'Process (1)':'Process (2)'}, ${rEscape(rDescriptions[ctx.move])}</strong><br>Source: q${info.source} · Target: q${info.destination} · Spectator: q${info.spectator}</p>`;
+      html+=`<div class="r-v-row">${rVFlag(ctx.inputValid,'✓ Input has two expected RGB clusters','⚠ Input already has extra/misplaced flux')}</div>`;
+      if(!ctx.inputValid)html+='<p class="r-v-hint">The preceding move has already failed the flux check. A failure here cannot be attributed to this movement alone; fix the earlier move first.</p>';
+      html+='<table><thead><tr><th>Checkpoint</th><th>B<sub>t</sub>=−1</th><th>RGB at endpoints</th><th>Source flux*</th></tr></thead><tbody>';
+      for(let i=0;i<v.length;i++){
+        const out=v[i].report;
+        const expectation=i===0?'before move':i===1?'intermediate':(out.ok?'yes':'no');
+        html+=`<tr><td>${labels[i]}</td><td>${out.flux.length}</td><td>${expectation}</td><td>${v[i].fluxNearSource.length}</td></tr>`;
+      }
+      html+='</tbody></table>';
+      html+=`<div class="r-v-row">${rVFlag(ctx.sourceClean,'✓ Old interface flux cleared after X','✗ Residual interface flux after X')} · ${rVFlag(validFlux.ok,'✓ Final RGB clusters at targets','✗ Final RGB clusters not clean')} · ${rVFlag(ctx.spectatorUnchanged,'✓ Spectator triangle IDs unchanged','✗ Spectator triangle IDs changed')}</div>`;
+      html+=`<p class="r-v-hint">*Source flux means excited triangle centers within 1.15 lattice units of the source. RGB locality uses a 1.85-unit radius and checks three distinct colors at each expected endpoint. These geometric thresholds are diagnostics, not topological proofs.</p>`;
+      html+=`<div class="r-v-row">Final triangle IDs: <span class="r-validation-codes">${validFlux.flux.map(t=>'B'+t.id).join(', ')||'none'}</span></div>`;
+      if(ctx.restored!==null){
+        html+=`<div class="r-v-row">${rVFlag(ctx.restored.length===0,'✓ All chosen projected stars have ⟨A⟩=+1','✗ Stars not restored: '+ctx.restored.map(id=>'A'+id).join(', '))}</div>`;
+        html+=`<div class="r-v-row">${rVFlag(ctx.nonzero,'✓ Every projector branch has nonzero probability','✗ A projector branch has zero probability')}</div>`;
+        html+=`<div class="r-v-row">Conditional projector probabilities: <span class="r-validation-codes">${ctx.checked.length?ctx.projectors.map((e,i)=>'A'+e.starId+': '+ctx.newRatios[i].toFixed(4)).join('; '):'no projectors'}</span><br>Combined conditional probability: <strong>${ctx.pCombined.toFixed(8)}</strong></div>`;
+        html+='<details><summary>Star expectations at each checkpoint</summary><table><thead><tr><th>Star</th><th>Before</th><th>Ribbon</th><th>X</th><th>P</th></tr></thead><tbody>';
+        for(const id of ctx.starIds){
+          const fmt=(k)=>Number.isFinite(v[k].expectations[id])?v[k].expectations[id].toFixed(3):'undefined';
+          html+=`<tr><td>A${id}${ctx.checked.includes(id)?' *':''}</td>${[0,1,2,3].map(k=>`<td>${fmt(k)}</td>`).join('')}</tr>`;
+        }
+        html+='</tbody></table><p class="r-v-hint">* Selected projectors. The remaining rows are nearby complete stars (diagnostic only). Expectations are conditional on the successful projector branches.</p></details>';
+      }else{
+        html+=`<p class="r-v-hint"><strong>Star expectations and projector probabilities unavailable:</strong> ${starData.length} complete stars exceed this solver's 16-star limit. The triangle syndromes above are still evaluated exactly from X parity.</p>`;
+      }
+      if(other){
+        html+='<details open><summary><strong>Same M(2→1) in both spectator contexts</strong></summary>';
+        html+=`<p class="r-v-hint">Process (1) input: ${rVFlag(ctx.which==='A'?ctx.inputValid:other.inputValid,'clean RGB','already violated')}; Process (2) input: ${rVFlag(ctx.which==='B'?ctx.inputValid:other.inputValid,'clean RGB','already violated')}.</p>`;
+        html+='<table><thead><tr><th>Context</th><th>Source</th><th>Endpoints</th><th>Spectator</th><th>Stars</th></tr></thead><tbody>';
+        html+=rVContextSummary(ctx)+rVContextSummary(other)+'</tbody></table>';
+        html+='<p class="r-v-hint">The exact same ribbon, one mandatory X(q2), and projector list are used in both contexts; the input quantum states differ. Matching syndromes alone does not prove preservation of the fusion space.</p></details>';
+      }
+      html+='<p class="r-v-hint"><strong>Not yet certified:</strong> preservation of the non-Abelian fusion space and inverse-path consistency. Passing these local tests is necessary but not sufficient to identify an R-symbol.</p>';
+      return html;
+    }
+    function rValidateSelected(){
+      const token=++rValidationToken;
+      if(!rGeom||!rActiveStep){rValidationContent.innerHTML='<p>Choose one of the movement buttons to inspect its checkpoints.</p>';return;}
+      if(rActiveStep===1){
+        const ev=rStepEvents(rActiveProcess,1),report=rEndpointFluxReport(ev,[rGeom.q1,rGeom.q2]);
+        rValidationContent.innerHTML=`<p>Initial splitting S(1,2): ${report.flux.length} excited triangles. Expected two RGB endpoints: ${rVFlag(report.ok,'geometrically consistent','not yet consistent')}.</p><p class="r-v-hint">Choose movement step 2, 3 or 4 to inspect the ribbon, X and projector checkpoints.</p>`;
+        return;
+      }
+      rValidationContent.innerHTML='<p>Evaluating interface checkpoints…</p>';
+      setTimeout(()=>{
+        if(token!==rValidationToken)return;
+        try{
+          let engine=null;
+          if(starData.length<=16){if(!rExactCache)rExactCache=new RExactEngine();engine=rExactCache;}
+          const ctx=rValidationContext(rActiveProcess,rActiveStep,engine);
+          const other=ctx.move==='M21'?rValidationContext(rActiveProcess==='A'?'B':'A',3,engine):null;
+          if(token!==rValidationToken)return;
+          rValidationContent.innerHTML=rValidationHTML(ctx,other);
+          setTimeout(rResize,100);
+        }catch(e){rValidationContent.innerHTML=`<p class="r-error">Interface validation failed: ${rEscape(e.message)}</p>`;console.error(e);}
+      },15);
+    }
+
     class RExactEngine {
       constructor(){
         this.n=starData.length;if(this.n>16)throw Error('Grid is above 16-star exact-simulation limit');
@@ -3549,6 +3736,7 @@ def build_interactive_lattice_html(lattice) -> str:
         return sign;
       }
       state(){return {re:this.initial.re.slice(),im:this.initial.im.slice(),off:this.initial.off.slice(),outcomes:[]};}
+      copy(state){return {re:state.re.slice(),im:state.im.slice(),off:state.off.slice(),outcomes:state.outcomes.slice()};}
       norm(state){let sum=0;for(let i=0;i<this.dim;i++)sum+=state.re[i]**2+state.im[i]**2;return Math.sqrt(sum);}
       project(state,starId){
         const r=new Float64Array(this.dim),im=new Float64Array(this.dim),mask=1<<starId;
@@ -3624,12 +3812,12 @@ def build_interactive_lattice_html(lattice) -> str:
         const id=Number(p.customdata),arr=rAdjust[move].stars;
         rAdjust[move].stars=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
       } else return;
-      rCalcToken++;rRenderStep();
+      rCalcToken++;rValidationToken++;rRenderStep();
     }
     for(const btn of rStepButtons){
       btn.addEventListener('click',()=>{
         if(!rGeom)return;
-        rActiveProcess=btn.dataset.rProcess;rActiveStep=Number(btn.dataset.rStep);
+        rActiveProcess=btn.dataset.rProcess;rActiveStep=Number(btn.dataset.rStep);rCheckpoint='projected';rCheckpointSelect.value=rCheckpoint;rValidationToken++;
         rCompleted[rActiveProcess]=Math.max(rCompleted[rActiveProcess],rActiveStep);
         rUpdateButtons();rRenderStep();
       });
@@ -3651,7 +3839,11 @@ def build_interactive_lattice_html(lattice) -> str:
       if(new Set(qs).size!==qs.length||new Set(stars).size!==stars.length){
         rCalc.innerHTML='<p class="r-error">Please remove duplicate qubit or star IDs.</p>';return;
       }
-      rAdjust[move]={x:qs,stars};rCalcToken++;rRenderStep();
+      rAdjust[move]={x:qs,stars};rCalcToken++;rValidationToken++;rRenderStep();
+    });
+
+    rCheckpointSelect.addEventListener('change',()=>{
+      rCheckpoint=rCheckpointSelect.value;rValidationToken++;rRenderStep();
     });
 
     initializeQubitSelector();
