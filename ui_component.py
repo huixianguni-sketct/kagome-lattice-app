@@ -598,6 +598,13 @@ def build_interactive_lattice_html(lattice) -> str:
     .r-validation .r-validation-codes{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;font-size:10px;}
     .r-validation .r-v-row{margin:6px 0;}
     .r-validation .r-v-hint{color:#64748b;font-size:11px;margin:5px 0;}
+
+    .r-symbolic-badge{color:#075985;background:#f0f9ff;border:1px solid #bae6fd;padding:6px 8px;border-radius:6px;font-weight:700;}
+    .r-symbolic-table{width:100%;border-collapse:collapse;font-size:11px;margin:8px 0;}
+    .r-symbolic-table th,.r-symbolic-table td{padding:5px 3px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top;}
+    .r-symbolic-table small{color:#64748b;}
+    #r-calc details{margin:9px 0;}
+    #r-calc summary{cursor:pointer;}
     @media(max-width:900px){.r-layout{grid-template-columns:1fr}.r-panel{max-height:none}}
 
   </style>
@@ -724,7 +731,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
     <section class="r-studio" id="r-studio" hidden>
       <div class="r-toolbar">
-        <span class="r-heading">Microscopic R calculation — experimental</span>
+        <span class="r-heading">Microscopic R calculation — symbolic</span>
       </div>
       <p id="r-overview" class="r-overview"></p>
       <div class="r-step-row"><span class="r-process-title">Process (1)</span>
@@ -767,7 +774,7 @@ def build_interactive_lattice_html(lattice) -> str:
             <input id="r-edit-stars" placeholder="e.g. 5, 8, 9" aria-label="Interface projected star IDs"/>
             <button class="btn" id="r-save-adjust" disabled>Apply to this movement (both processes)</button>
           </details>
-          <p class="r-caveat">The calculation uses the exact chronological X/R/CZ gates and ordered P=(I+A)/2 projectors. It does not presuppose that s1 or s2 is a semion. The small-patch exact solver runs when there are at most 16 complete stars.</p>
+          <p class="r-caveat">The calculation uses the exact chronological X/R/CZ gates and ordered P=(I+A)/2 projectors. It does not presuppose that s1 or s2 is a semion. The symbolic engine preserves complex phases and normalizes every successful projection without enumerating 2^N amplitudes. The finite-open-patch reference state is unchanged.</p>
         </aside>
       </div>
     </section>
@@ -3397,8 +3404,18 @@ def build_interactive_lattice_html(lattice) -> str:
       const near=rPoint(move==='M21'?geom.q2:geom.q1),count=move==='Y'?4:3;
       return starData.slice().sort((a,b)=>Math.hypot(a.center[0]-near.x,a.center[1]-near.y)-Math.hypot(b.center[0]-near.x,b.center[1]-near.y)).slice(0,count).map(s=>s.id);
     }
+    function rUserXForSixCellJunction(geom) {
+      // Qubit IDs are lattice-specific.  These two experimentally identified
+      // additional corrections apply ONLY to the matching 6 x 6 junction.
+      // In this geometry the existing mandatory 2→1 X is at q67, so q68
+      // is a SECOND, distinct interface X and must not replace q67.
+      const matches=starData.length===16 &&
+        geom.q0===58 && geom.q1===63 && geom.q2===67 && geom.qY===29 &&
+        siteById.has(61) && siteById.has(68);
+      return matches?{Y:[61],M21:[68],M0:[]}:null;
+    }
     function rSetup(kind) {
-      rSelectedKind=kind;rExactCache=null;rCalcToken++;rValidationToken++;rCheckpoint='projected';rCheckpointSelect.value=rCheckpoint;
+      rSelectedKind=kind;rExactCache=null;rLastSymbolicReport=null;rCalcToken++;rValidationToken++;rCheckpoint='projected';rCheckpointSelect.value=rCheckpoint;
       rValidationContent.textContent='Choose one of the movement buttons to inspect its checkpoints.';
       const model=rFindGeometry(kind);
       rGeom=model?.geom||null;rSegments=model?.segments||null;
@@ -3407,10 +3424,19 @@ def build_interactive_lattice_html(lattice) -> str:
       rStudio.hidden=!kind;setTimeout(rResize,120);
       if(!kind)return;
       if(!model){rOverview.textContent='No complete T-junction fits this open patch. Increase the lattice size (for example 8 × 8).';rCalc.textContent='No R result: a complete junction could not be constructed.';rUpdateButtons();return;}
+      const userX=rUserXForSixCellJunction(rGeom);
       for(const move of ['Y','M21','M0']){
-        rAdjust[move]={x:rCorrectionAuto(move,rGeom,rSegments),stars:rStarsAuto(move,rGeom)};
+        const automatic=rCorrectionAuto(move,rGeom,rSegments);
+        const userAdditions=userX?userX[move]:[];
+        rAdjust[move]={
+          x:[...new Set([...automatic,...userAdditions])].filter(q=>!(move==='M21'&&q===rGeom.q2)),
+          stars:rStarsAuto(move,rGeom)
+        };
       }
-      rOverview.innerHTML=`Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> All other X corrections and star projectors are only initial suggestions, not independently certified.`;
+      const userInfo=userX
+        ? '<strong>6×6 corrections from user inspection:</strong> 1→Y also applies X(q61); 2→1 also applies X(q68), in addition to mandatory X(q67). These are applied in BOTH braiding processes for s1 and s2. '
+        : '6×6-specific extra X locations have not been established for this geometry; no q61/q68 overrides applied. ';
+      rOverview.innerHTML=`Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
       rCalc.innerHTML='<p>Complete both four-step processes to compare their final quantum states. The interface corrections must be validated first.</p>';
       rUpdateButtons();rRenderStep();setTimeout(rResize,350);
     }
@@ -3525,7 +3551,7 @@ def build_interactive_lattice_html(lattice) -> str:
         const move=rSequences[rActiveProcess][rActiveStep-1];
         rFixedXNote.textContent=move==='M21'
           ? `Mandatory interface operation: X at position 2 = qubit ${rGeom.q2} (applied exactly once, after the fresh 2→1 segment). Do NOT enter this qubit again below.`
-          : 'There is no fixed interface X for this movement. Extra X corrections are editable below.';
+          : 'There is no mandatory source X for this movement. Additional interface X corrections are editable below.';
         rEditX.value=rAdjust[move].x.join(', ');
         rEditStars.value=rAdjust[move].stars.join(', ');
         rSaveAdjust.disabled=false;
@@ -3555,37 +3581,95 @@ def build_interactive_lattice_html(lattice) -> str:
       const ok=Object.values(colored).every(arr=>arr.length===3 && new Set(arr.map(t=>t.color)).size===3);
       return {ok,fluxIds:tris.map(t=>t.id),colored};
     }
+    let rLastSymbolicReport=null;
+    function rWeightGroups(state,which) {
+      return rSequences[which].map((move,k)=>{
+        const terms=state.projectionLog.filter(x=>x.step===k+1);
+        const zero=terms.some(t=>t.p===0);
+        const logp=zero?-Infinity:terms.reduce((n,t)=>n+(t.log2p??0),0);
+        return {step:k+1,move,stars:terms.map(t=>t.starId),p:zero?0:2**logp,w:zero?null:2**(-logp/2),log2p:zero?null:logp};
+      });
+    }
+    function rNumber(v) {
+      if(v===null||!Number.isFinite(v))return 'undefined';
+      if(v===0)return '0';if(v===1)return '1';
+      return (Math.abs(v)<1e-5||Math.abs(v)>1e6)?v.toExponential(6):Number(v.toPrecision(8)).toString();
+    }
+    function rExactForm(result) {
+      if(result.zero)return '0';
+      return `2<sup>${result.power}</sup> exp(iπ × ${result.phase8}/4)`;
+    }
+    function rWeightTable(state,which) {
+      const groups=rWeightGroups(state,which);
+      let html=`<details open><summary><strong>Process (${which==='A'?1:2}): projection normalization</strong></summary>`;
+      html+='<table class="r-symbolic-table"><thead><tr><th>Step</th><th>p = ⟨P†P⟩</th><th>w = 1/√p</th></tr></thead><tbody>';
+      for(const g of groups)html+=`<tr><td>${g.step}. ${rEscape(rDescriptions[g.move])}<br><small>${g.stars.map(id=>'A'+id).join(', ')||'No projections'}</small></td><td>${rNumber(g.p)}</td><td>${rNumber(g.w)}</td></tr>`;
+      html+='</tbody></table><p class="r-caveat">p is conditional on all earlier successful, normalized steps. Each movement uses the product of its per-projector weights; no independence of outcomes is assumed.</p></details>';
+      html+='<details><summary>Individual star probabilities and weights</summary><table class="r-symbolic-table"><thead><tr><th>Star / step</th><th>p</th><th>w</th></tr></thead><tbody>';
+      for(const t of state.projectionLog)html+=`<tr><td>A${t.starId} / ${t.step??'–'}</td><td>${rNumber(t.p)}</td><td>${rNumber(t.w)}</td></tr>`;
+      html+='</tbody></table></details>';return html;
+    }
+    function rSymbolicMethodHTML(engine,contraction) {
+      const meta=engine.metadata();
+      return `<details><summary><strong>How the symbolic calculation works</strong></summary>
+        <p>Evaluates ⟨Ω|K₂†K₁|Ω⟩ and projector norms by exact operator/phase-polynomial contraction. Pauli parities and CZ phases are combined algebraically. Projection branches remain binary variables in a compact quadratic polynomial; they are never expanded into an amplitude vector.</p>
+        <div class="r-math">0 amplitude arrays · ${meta.physicalQubits} physical qubits · ${meta.completeStars} independent complete stars<br>Last overlap: ${contraction?.variables??0} binary variables; ${contraction?.rank??0} matching constraints; ${contraction?.freeVariables??0} free variables eliminated algebraically.</div>
+        <p>All complex phases, including global R-gate phases and the signs from reordering X/CZ/star operations, are retained. A zero postselection branch has no normalization and no R value.</p>
+        <p><strong>Open-boundary reference:</strong> Ω is the same normalized star-generated state from |0…0⟩ as in the earlier amplitude engine. Products of Bₜ have expectation +1, and an anticommuting star proves zero. A residual outside the Bₜ span is <em>not automatically zero</em>: this reference fixes ${meta.extraDiagonalConstraints} additional diagonal degrees of freedom beyond the ${meta.triangleRank} independent triangle constraints.</p>
+        <label for="r-z-query">Check a residual Z string on Ω (qubit IDs)</label>
+        <input id="r-z-query" placeholder="e.g. 99, 100, 101" aria-label="Residual Z qubit IDs"/>
+        <button class="btn" id="r-z-test">Check Z residual</button><div id="r-z-answer" aria-live="polite"></div>
+        <p class="r-caveat">This compresses the user's residual-Z summation rather than listing exponentially many terms. It supports the displayed X/Z/R/CZ/star-projector gate set and independent open-patch star basis; it is not a generic polynomial-time simulator for arbitrary quantum gates.</p>
+      </details>`;
+    }
     function rComputeR(){
       const A=rStepEvents('A',4),B=rStepEvents('B',4),cA=rWholeStateChecks(A,rGeom.q0,rGeom.qY),cB=rWholeStateChecks(B,rGeom.q0,rGeom.qY);
       let section=`<p><strong>Two protocol outputs:</strong> (1): ${cA.fluxIds.length} excited triangles; (2): ${cB.fluxIds.length}. ${cA.ok&&cB.ok?'Both have three RGB triangles near each endpoint.':'The final triangle pattern is not two clean RGB endpoints.'}</p>`;
       if(!cA.ok||!cB.ok)section+='<p class="r-error">Not a calibrated exchange: the final flux syndrome does not match two RGB anyons at 0 and Y.</p>';
-      if(starData.length>16){rCalc.innerHTML=section+`<p><strong>Exact complex overlap unavailable on this grid:</strong> ${starData.length} complete stars would require at least 2<sup>${starData.length}</sup> ground-state amplitudes in this test method. Use a smaller patch (≤16 complete stars) for an exact finite-patch evaluation.</p>`;return;}
-      rCalc.innerHTML=section+'<p>Computing projected-state overlap…</p>';
+      rLastSymbolicReport=null;
+      rCalc.innerHTML=section+'<p>Contracting operators and normalizing projector branches…</p>';
       const token=++rCalcToken;
       setTimeout(()=>{
         if(token!==rCalcToken)return;
         try {
-          if(!rExactCache)rExactCache=new RExactEngine();
+          const start=performance.now();
+          if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);
           const first=rExactCache.run(A),second=rExactCache.run(B);
-          const z=rExactCache.overlap(first,second);
+          section+='<p class="r-symbolic-badge">Phase-sensitive symbolic calculation · no amplitude enumeration</p>';
+          if(first.dead||second.dead){
+            section+='<p class="r-error">R is undefined: '+[first.dead?'process (1)':null,second.dead?'process (2)':null].filter(Boolean).join(' and ')+' has a zero-probability projection. A factor w cannot normalize the zero vector.</p>';
+            section+=rWeightTable(first,'A')+rWeightTable(second,'B');
+            rLastSymbolicReport={status:'zero-postselection',engine:rExactCache.metadata(),kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,eventsA:A,eventsB:B,projectorsA:first.projectionLog,projectorsB:second.projectionLog};
+            section+='<button class="btn" id="r-export-symbolic">Export calculation JSON</button>';
+            rCalc.innerHTML=section;setTimeout(rResize,120);return;
+          }
+          // Both states are already normalized after every successful P.
+          const exact=rExactCache.innerExact(first,second,true),w=rSymComplex(exact);
           const n1=rExactCache.norm(first),n2=rExactCache.norm(second);
-          const w=n1*n2?{re:z.re/(n1*n2),im:z.im/(n1*n2)}:{re:0,im:0};
-          const mag=Math.hypot(w.re,w.im);
-          const phase=mag>1e-10?Math.atan2(w.im,w.re)/Math.PI:null;
+          const rawN1=rExactCache.rawNorm(first),rawN2=rExactCache.rawNorm(second);
+          const rawExact={...exact,power:exact.power+(first.logSuccess+second.logSuccess)/2};
+          const z=rSymComplex(rawExact),mag=Math.hypot(w.re,w.im),phase=mag>1e-10?Math.atan2(w.im,w.re)/Math.PI:null;
           const checked=[...new Set([...A,...B].filter(ev=>ev.type==='P').map(ev=>ev.starId))];
-          const brokenA=checked.filter(id=>Math.abs(rExactCache.starExpectation(first,id)-1)>1e-7);
-          const brokenB=checked.filter(id=>Math.abs(rExactCache.starExpectation(second,id)-1)>1e-7);
-          const status=(cA.ok&&cB.ok&&brokenA.length===0&&brokenB.length===0&&n1>1e-8&&n2>1e-8&&mag>.995)
-            ? (Math.abs(w.re)<.12 && Math.abs(Math.abs(w.im)-1)<.12 ? (w.im>0?'Candidate +i (semion-like)':'Candidate −i (antisemion-like)') : 'Unit-magnitude phase; not ±i')
-            : 'INCONCLUSIVE — do not identify the anyon from this overlap';
-          section+=`<div class="r-math">‖Ψ₁‖ = ${n1.toFixed(7)}; ‖Ψ₂‖ = ${n2.toFixed(7)}<br>⟨Ψ₂|Ψ₁⟩ = ${rFormatComplex(z)}<br>Normalized overlap = <strong>${rFormatComplex(w)}</strong><br>|overlap| = ${mag.toFixed(6)}${phase===null?'':`; phase = ${phase.toFixed(5)}π`}</div>`;
-          section+=`<p>Final projector check: process (1) ${brokenA.length?'A'+brokenA.join(', A')+' not restored':'all requested stars +1'}; process (2) ${brokenB.length?'A'+brokenB.join(', A')+' not restored':'all requested stars +1'}.</p>`;
+          const starA=checked.map(id=>({id,value:rExactCache.starExpectation(first,id)}));
+          const starB=checked.map(id=>({id,value:rExactCache.starExpectation(second,id)}));
+          const brokenA=starA.filter(s=>!Number.isFinite(s.value)||Math.abs(s.value-1)>1e-7).map(s=>s.id);
+          const brokenB=starB.filter(s=>!Number.isFinite(s.value)||Math.abs(s.value-1)>1e-7).map(s=>s.id);
+          const passes=cA.ok&&cB.ok&&rSameIds(cA.fluxIds.slice().sort((a,b)=>a-b),cB.fluxIds.slice().sort((a,b)=>a-b))&&brokenA.length===0&&brokenB.length===0&&Math.abs(mag-1)<1e-9;
+          const status=passes?'Phase-only outputs in this finite-patch test — transport/species still need independent validation':'INCONCLUSIVE — do not identify the anyon from this overlap';
+          section+=`<div class="r-math">Normalized ⟨ψ₂|ψ₁⟩ = <strong>${rFormatComplex(w)}</strong><br>Exact form: ${rExactForm(exact)}<br>|overlap| = ${mag.toFixed(8)}${phase===null?'':`; arg / π = ${phase.toFixed(6)}`}<br>Final normalized norms: ${rNumber(n1)}, ${rNumber(n2)}</div>`;
           section+=`<p><strong>${status}</strong></p>`;
-          section+=`<p>Projector success ratios, process (1): ${first.outcomes.map(x=>x.toFixed(4)).join(', ')||'none'}; process (2): ${second.outcomes.map(x=>x.toFixed(4)).join(', ')||'none'}.</p>`;
-          if(mag<.995)section+='<p class="r-error">The two final vectors are not related by a pure phase. Reporting Arg(overlap) as an R-symbol would be incorrect.</p>';
-          section+='<p class="r-caveat">This is an exact finite-open-patch amplitude calculation for the displayed gate and projector choices; it is not an independent certification that the selected endpoints carry a definite s₁/s₂ topological species. The default interface corrections are heuristic and must be physically calibrated.</p>';
+          if(!passes&&mag<1-1e-9)section+='<p class="r-error">The output states are not proportional. Normalization is already included; it cannot turn a magnitude below one into a valid exchange phase.</p>';
+          section+=rWeightTable(first,'A')+rWeightTable(second,'B');
+          section+=`<details><summary><strong>Ground-state sandwich and total normalization</strong></summary><div class="r-math">Kⱼ = ordered circuit with unscaled P=(I+A)/2<br>⟨Ω|K₂†K₁|Ω⟩ = ${rFormatComplex(z)}<br>Exact raw form: ${rExactForm(rawExact)}<br>⟨Ω|K₁†K₁|Ω⟩ = ${rNumber(rawN1**2)}<br>⟨Ω|K₂†K₂|Ω⟩ = ${rNumber(rawN2**2)}<br>Total w₁ = ${rNumber(1/rawN1)}; total w₂ = ${rNumber(1/rawN2)}<br>⟨ψ₂|ψ₁⟩ = (∏ w₂)(∏ w₁) ⟨Ω|K₂†K₁|Ω⟩</div></details>`;
+          section+=`<p>Final selected-star check: process (1) ${brokenA.length?'A'+brokenA.join(', A')+' not restored':'all requested stars +1'}; process (2) ${brokenB.length?'A'+brokenB.join(', A')+' not restored':'all requested stars +1'}.</p>`;
+          section+=rSymbolicMethodHTML(rExactCache,exact);
+          section+='<p class="r-caveat">The positive w factors normalize these specific successful branches. This alone does not establish state-independent success probability or preservation of a multidimensional fusion space. No boundary buffer, arm lengths, CZs or interface choices have been changed by this calculator update.</p>';
+          const elapsed=performance.now()-start;
+          section+=`<p class="r-caveat">Calculation and selected-star checks: ${elapsed.toFixed(1)} ms on this browser.</p><button class="btn" id="r-export-symbolic">Export calculation JSON</button>`;
+          rLastSymbolicReport={status,kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,engine:rExactCache.metadata(),normalization:'positive normalization after every successful star projector',eventsA:A,eventsB:B,projectionGroupsA:rWeightGroups(first,'A'),projectionGroupsB:rWeightGroups(second,'B'),projectorsA:first.projectionLog,projectorsB:second.projectionLog,rawNormA:rawN1,rawNormB:rawN2,normalizedNormA:n1,normalizedNormB:n2,rawOverlap:z,overlap:w,exactOverlap:exact,exactRawOverlap:rawExact,magnitude:mag,phasePi:phase,selectedStarExpectationsA:starA,selectedStarExpectationsB:starB,triangleIdsA:cA.fluxIds,triangleIdsB:cB.fluxIds,timeMs:elapsed};
+          if(token!==rCalcToken)return;
           rCalc.innerHTML=section;setTimeout(rResize,120);
-        }catch(e){rCalc.innerHTML=section+'<p class="r-error">Exact evaluation failed: '+rEscape(e.message)+'</p>';console.error(e);}
+        }catch(e){rCalc.innerHTML=section+'<p class="r-error">Symbolic evaluation failed: '+rEscape(e.message)+'</p>';console.error(e);}
       },15);
     }
 
@@ -3656,7 +3740,7 @@ def build_interactive_lattice_html(lattice) -> str:
       if(ctx.restored!==null){
         html+=`<div class="r-v-row">${rVFlag(ctx.restored.length===0,'✓ All chosen projected stars have ⟨A⟩=+1','✗ Stars not restored: '+ctx.restored.map(id=>'A'+id).join(', '))}</div>`;
         html+=`<div class="r-v-row">${rVFlag(ctx.nonzero,'✓ Every projector branch has nonzero probability','✗ A projector branch has zero probability')}</div>`;
-        html+=`<div class="r-v-row">Conditional projector probabilities: <span class="r-validation-codes">${ctx.checked.length?ctx.projectors.map((e,i)=>'A'+e.starId+': '+ctx.newRatios[i].toFixed(4)).join('; '):'no projectors'}</span><br>Combined conditional probability: <strong>${ctx.pCombined.toFixed(8)}</strong></div>`;
+        html+=`<div class="r-v-row">Conditional projector probabilities: <span class="r-validation-codes">${ctx.checked.length?ctx.projectors.map((e,i)=>'A'+e.starId+': '+ctx.newRatios[i].toFixed(4)).join('; '):'no projectors'}</span><br>Combined conditional probability: <strong>${rNumber(ctx.pCombined)}</strong><br>Movement normalization w = 1/√p = <strong>${ctx.pCombined>0?rNumber(1/Math.sqrt(ctx.pCombined)):'undefined (zero branch)'}</strong><br>Each successful projector is positively normalized; the checkpoint state has norm 1.</div>`;
         html+='<details><summary>Star expectations at each checkpoint</summary><table><thead><tr><th>Star</th><th>Before</th><th>Ribbon</th><th>X</th><th>P</th></tr></thead><tbody>';
         for(const id of ctx.starIds){
           const fmt=(k)=>Number.isFinite(v[k].expectations[id])?v[k].expectations[id].toFixed(3):'undefined';
@@ -3664,7 +3748,7 @@ def build_interactive_lattice_html(lattice) -> str:
         }
         html+='</tbody></table><p class="r-v-hint">* Selected projectors. The remaining rows are nearby complete stars (diagnostic only). Expectations are conditional on the successful projector branches.</p></details>';
       }else{
-        html+=`<p class="r-v-hint"><strong>Star expectations and projector probabilities unavailable:</strong> ${starData.length} complete stars exceed this solver's 16-star limit. The triangle syndromes above are still evaluated exactly from X parity.</p>`;
+        html+=`<p class="r-v-hint"><strong>Star expectations and projector probabilities unavailable:</strong> The symbolic engine could not evaluate the current reference sector. The triangle syndromes above are still evaluated exactly from X parity.</p>`;
       }
       if(other){
         html+='<details open><summary><strong>Same M(2→1) in both spectator contexts</strong></summary>';
@@ -3689,7 +3773,7 @@ def build_interactive_lattice_html(lattice) -> str:
         if(token!==rValidationToken)return;
         try{
           let engine=null;
-          if(starData.length<=16){if(!rExactCache)rExactCache=new RExactEngine();engine=rExactCache;}
+          if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);engine=rExactCache;
           const ctx=rValidationContext(rActiveProcess,rActiveStep,engine);
           const other=ctx.move==='M21'?rValidationContext(rActiveProcess==='A'?'B':'A',3,engine):null;
           if(token!==rValidationToken)return;
@@ -3699,103 +3783,257 @@ def build_interactive_lattice_html(lattice) -> str:
       },15);
     }
 
-    class RExactEngine {
-      constructor(){
-        this.n=starData.length;if(this.n>16)throw Error('Grid is above 16-star exact-simulation limit');
-        this.dim=1<<this.n;
-        this.parity=new Uint8Array(this.dim);
-        for(let m=1;m<this.dim;m++)this.parity[m]=this.parity[m>>1]^(m&1);
-        this.siteMask=new Uint32Array(siteData.length);
-        this.starX=[];this.starEdges=[];
-        for(let j=0;j<this.n;j++){
-          const star=starData[j];let bits=0n;
-          for(const q of star.x_qubits){this.siteMask[q]|=(1<<j);bits^=qubitBit(q);}
-          this.starX.push(bits);
-          this.starEdges.push(star.cz_edges);
+    /* Phase-sensitive symbolic contraction for the Kagome complete-star orbit.
+     * No 2^N amplitude array. Projection branches are affine variables, not vectors.
+     * Gate set: X, Z, R=exp(+i*pi*Z/4), Rdag, CZ, A_s and (I +/- A_s)/2.
+     * Reference: normalized product_s (I+A_s)|0...0>, independent star X supports.
+     * This is NOT a claim that the physical D4 ground state is a stabilizer state.
+     */
+    const rSymBitsCache = new Map();
+    function rSymIndex(bit) {
+      let v=rSymBitsCache.get(bit);
+      if(v===undefined){v=bit.toString(2).length-1;rSymBitsCache.set(bit,v);}
+      return v;
+    }
+    function rSymIndices(mask) {
+      const out=[];
+      while(mask){const bit=mask&-mask;out.push(rSymIndex(bit));mask^=bit;}
+      return out;
+    }
+    function rSymParity(mask) {let p=0;while(mask){mask&=mask-1n;p^=1;}return p;}
+    function rSymMod4(x) {return ((x%4)+4)%4;}
+    function rSymMod8(x) {return ((x%8)+8)%8;}
+    function rSymRank(rows) {
+      const basis=new Map();
+      for(let v of rows){while(v){const p=v.toString(2).length-1;if(basis.has(p))v^=basis.get(p);else{basis.set(p,v);break;}}}
+      return basis;
+    }
+    function rSymContains(basis,vec) {
+      while(vec){const p=vec.toString(2).length-1;if(!basis.has(p))return false;vec^=basis.get(p);}return true;
+    }
+    class RPhasePolynomial {
+      constructor(n=0){this.n=n;this.c=0;this.lin=Array(n).fill(0);this.adj=Array(n).fill(0n);}
+      clone(){const p=new RPhasePolynomial(this.n);p.c=this.c;p.lin=this.lin.slice();p.adj=this.adj.slice();return p;}
+      grow(){this.lin.push(0);this.adj.push(0n);return this.n++;}
+      edge(i,j){if(i===j){this.lin[i]=(this.lin[i]+2)&3;return;}this.adj[i]^=1n<<BigInt(j);this.adj[j]^=1n<<BigInt(i);}
+      // Add coeff*(constant XOR parity(mask)) mod 4. Odd parity has pair terms.
+      parity(coeff,mask,constant=0){
+        coeff=rSymMod4(coeff);if(!coeff)return;
+        if(constant){this.c=(this.c+coeff)&3;coeff=(-coeff)&3;}
+        const ids=rSymIndices(mask);
+        for(const i of ids)this.lin[i]=(this.lin[i]+coeff)&3;
+        if(coeff&1)for(let a=0;a<ids.length;a++)for(let b=a+1;b<ids.length;b++)this.edge(ids[a],ids[b]);
+      }
+      // Add 2*(ca XOR parity(a))*(cb XOR parity(b)) mod 4.
+      product(a,ca,b,cb){
+        if(ca&&cb)this.c^=2;
+        if(ca)this.parity(2,b);if(cb)this.parity(2,a);
+        const ai=rSymIndices(a),bi=rSymIndices(b);
+        for(const i of ai)for(const j of bi)this.edge(i,j);
+      }
+      append(other,offset,sign=1){
+        this.c=rSymMod4(this.c+sign*other.c);
+        for(let i=0;i<other.n;i++){
+          this.lin[i+offset]=rSymMod4(this.lin[i+offset]+sign*other.lin[i]);
+          // A quadratic coefficient is 2; its negative is also 2 mod 4.
+          for(const j of rSymIndices(other.adj[i]))if(j>i)this.edge(i+offset,j+offset);
         }
-        const re=new Float64Array(this.dim),im=new Float64Array(this.dim);re[0]=1;
-        for(let s=0;s<this.n;s++){
-          const p=1<<s;
-          for(let m=0;m<p;m++){
-            const sign=this.czSignOnBase(s,m);
-            re[m|p]=sign*re[m];
+      }
+      substitute(forms,nfree){
+        const out=new RPhasePolynomial(nfree);out.c=this.c;
+        for(let i=0;i<this.n;i++){
+          if(this.lin[i])out.parity(this.lin[i],forms[i].mask,forms[i].c);
+          for(const j of rSymIndices(this.adj[i]))if(j>i)out.product(forms[i].mask,forms[i].c,forms[j].mask,forms[j].c);
+        }
+        return out;
+      }
+      toJSON(){
+        const quadratic=[];
+        for(let i=0;i<this.n;i++)for(const j of rSymIndices(this.adj[i]))if(j>i)quadratic.push([i,j]);
+        return {variables:this.n,constantMod4:this.c,linearMod4:this.lin.slice(),quadraticCoefficient2:quadratic,meaning:'q(x)=constant+sum linear_i*x_i+2*sum x_i*x_j (mod 4), with x_i in {0,1}'};
+      }
+      // Exact binary quadratic Gauss sum. Result is 0 or 2^power * exp(i*pi*phase8/4).
+      gauss(){
+        const q=this.clone();let active=(1n<<BigInt(q.n))-1n,power=0,phase8=0,oddEliminations=0,pairEliminations=0;
+        const remove=(i)=>{const bit=1n<<BigInt(i);for(const j of rSymIndices(q.adj[i]))q.adj[j]&=~bit;q.adj[i]=0n;q.lin[i]=0;active&=~bit;};
+        while(active){
+          const ids=rSymIndices(active),odd=ids.find(i=>q.lin[i]&1);
+          if(odd!==undefined){
+            const coeff=q.lin[odd],neighbors=q.adj[odd]&active;
+            remove(odd);q.parity(-coeff,neighbors);power+=.5;phase8+=coeff===1?1:-1;oddEliminations++;continue;
           }
-        }
-        const scale=1/Math.sqrt(this.dim);
-        for(let i=0;i<this.dim;i++)re[i]*=scale;
-        this.initial={re,im,off:new Uint8Array(siteData.length),outcomes:[]};
-      }
-      siteBit(q,index,off){return this.parity[index&this.siteMask[q]]^off[q];}
-      czSignOnBase(starId,index){
-        let sign=1;
-        for(const [a,b] of this.starEdges[starId])if(this.parity[index&this.siteMask[a]]&&this.parity[index&this.siteMask[b]])sign=-sign;
-        return sign;
-      }
-      starSign(starId,index,off){
-        let sign=1;for(const [a,b] of this.starEdges[starId])if(this.siteBit(a,index,off)&&this.siteBit(b,index,off))sign=-sign;
-        return sign;
-      }
-      state(){return {re:this.initial.re.slice(),im:this.initial.im.slice(),off:this.initial.off.slice(),outcomes:[]};}
-      copy(state){return {re:state.re.slice(),im:state.im.slice(),off:state.off.slice(),outcomes:state.outcomes.slice()};}
-      norm(state){let sum=0;for(let i=0;i<this.dim;i++)sum+=state.re[i]**2+state.im[i]**2;return Math.sqrt(sum);}
-      project(state,starId){
-        const r=new Float64Array(this.dim),im=new Float64Array(this.dim),mask=1<<starId;
-        const norm1=this.norm(state)**2;
-        for(let i=0;i<this.dim;i++){
-          const other=i^mask,sg=this.starSign(starId,other,state.off);
-          r[i]=.5*(state.re[i]+sg*state.re[other]);im[i]=.5*(state.im[i]+sg*state.im[other]);
-        }
-        state.re=r;state.im=im;
-        const ratio=norm1>1e-16?this.norm(state)**2/norm1:0;
-        state.outcomes.push(ratio);
-      }
-      gate(state,ev){
-        if(ev.type==='P'){this.project(state,ev.starId);return;}
-        const [a,b]=ev.qubits;
-        if(ev.type==='X'){state.off[a]^=1;return;}
-        if(ev.type==='CZ'){
-          for(let i=0;i<this.dim;i++)if(this.siteBit(a,i,state.off)&&this.siteBit(b,i,state.off)){state.re[i]*=-1;state.im[i]*=-1;}
-        }else if(ev.type==='Z'){
-          for(let i=0;i<this.dim;i++)if(this.siteBit(a,i,state.off)){state.re[i]*=-1;state.im[i]*=-1;}
-        }else if(ev.type==='R'){
-          const c=Math.SQRT1_2;
-          for(let i=0;i<this.dim;i++){
-            const sign=this.siteBit(a,i,state.off)?-1:1,real=state.re[i],imag=state.im[i];
-            state.re[i]=c*(real-sign*imag);state.im[i]=c*(imag+sign*real);
+          const i=ids.find(j=>(q.adj[j]&active)!==0n);
+          if(i!==undefined){
+            const j=rSymIndex((q.adj[i]&active)&-(q.adj[i]&active));
+            const a=q.adj[i]&active&~(1n<<BigInt(j)),b=q.adj[j]&active&~(1n<<BigInt(i));
+            const ca=q.lin[i]>>1,cb=q.lin[j]>>1;
+            remove(i);remove(j);q.product(a,ca,b,cb);power++;pairEliminations++;continue;
           }
-        }else throw Error('Unsupported R-study gate '+ev.type);
-      }
-      starExpectation(state,id) {
-        const n=this.dim,mask=1<<id,den=this.norm(state)**2;
-        if(den<1e-20)return NaN;
-        let real=0,imag=0;
-        for(let i=0;i<n;i++){
-          const j=i^mask,sg=this.starSign(id,j,state.off);
-          real+=sg*(state.re[i]*state.re[j]+state.im[i]*state.im[j]);
-          imag+=sg*(state.re[i]*state.im[j]-state.im[i]*state.re[j]);
+          if(ids.some(j=>q.lin[j]===2))return {zero:true,power:-Infinity,phase8:0,oddEliminations,pairEliminations};
+          power+=ids.length;active=0n;
         }
-        return real/den;
-      }
-      run(events){const state=this.state();for(const ev of events)this.gate(state,ev);return state;}
-      overlap(A,B){
-        // Return <B|A>, accounting for different X-offset representatives.
-        let delta=0n;for(let q=0;q<siteData.length;q++)if(A.off[q]!==B.off[q])delta^=qubitBit(q);
-        const basis=new Map();
-        for(let j=0;j<this.n;j++){
-          let v=this.starX[j],comb=1<<j;
-          while(v){const p=v.toString(2).length-1,prev=basis.get(p);if(prev){v^=prev.vec;comb^=prev.comb;}else{basis.set(p,{vec:v,comb});break;}}
-        }
-        let shift=0;
-        while(delta){const p=delta.toString(2).length-1,prev=basis.get(p);if(!prev)return {re:0,im:0};delta^=prev.vec;shift^=prev.comb;}
-        let re=0,im=0;
-        for(let i=0;i<this.dim;i++){
-          const j=i^shift;
-          re+=B.re[j]*A.re[i]+B.im[j]*A.im[i];
-          im+=B.re[j]*A.im[i]-B.im[j]*A.re[i];
-        }
-        return {re,im};
+        return {zero:false,power,phase8:rSymMod8(phase8+2*q.c),oddEliminations,pairEliminations};
       }
     }
+    function rSymAffineSolve(equations,n){
+      const basis=new Map();
+      for(const row of equations){
+        let mask=row.mask,c=row.c&1;
+        while(mask){const p=mask.toString(2).length-1,old=basis.get(p);if(old){mask^=old.mask;c^=old.c;}else{basis.set(p,{mask,c});break;}}
+        if(mask===0n&&c)return null;
+      }
+      const forms=Array(n),free=[];
+      for(let i=0;i<n;i++)if(!basis.has(i)){forms[i]={mask:1n<<BigInt(free.length),c:0};free.push(i);}
+      for(const i of [...basis.keys()].sort((a,b)=>a-b)){
+        const row=basis.get(i);let mask=0n,c=row.c;
+        for(const j of rSymIndices(row.mask^(1n<<BigInt(i)))){mask^=forms[j].mask;c^=forms[j].c;}
+        forms[i]={mask,c};
+      }
+      return {forms,nfree:free.length,rank:basis.size};
+    }
+    function rSymComplex(result){
+      if(result.zero)return {re:0,im:0};
+      const rt=Math.SQRT1_2,root=[[1,0],[rt,rt],[0,1],[-rt,rt],[-1,0],[-rt,-rt],[0,-1],[rt,-rt]][rSymMod8(result.phase8)];
+      const a=2**result.power;return {re:a*root[0],im:a*root[1]};
+    }
+    class RSymbolicEngine {
+      constructor(sites,stars,triangles=[]){
+        this.sites=sites;this.stars=stars;this.triangles=triangles;this.n=stars.length;
+        if(!this.n)throw Error('The reference patch needs at least one complete star.');
+        this.qIndex=new Map(sites.map((q,i)=>[Number(q.id??q.site_id),i]));
+        this.sIndex=new Map(stars.map((s,i)=>[Number(s.id),i]));
+        if(this.qIndex.size!==sites.length||this.sIndex.size!==stars.length)throw Error('Duplicate site/star IDs.');
+        this.siteMask=Array(sites.length).fill(0n);this.starX=[];this.starEdges=[];this.basis=new Map();
+        for(let j=0;j<this.n;j++){
+          let bits=0n;
+          for(const q of stars[j].x_qubits){const i=this.index(q);this.siteMask[i]^=1n<<BigInt(j);bits^=1n<<BigInt(i);}
+          this.starX.push(bits);this.starEdges.push(stars[j].cz_edges.map(([a,b])=>[this.index(a),this.index(b)]));
+          let v=bits,comb=1n<<BigInt(j);
+          while(v){const p=v.toString(2).length-1,prev=this.basis.get(p);if(prev){v^=prev.vec;comb^=prev.comb;}else{this.basis.set(p,{vec:v,comb});break;}}
+          if(!v)throw Error('Dependent complete-star X supports: this reference engine requires an independent open-patch basis.');
+        }
+        // Verify that the assumed orbit remains in the retained triangle +1 sector.
+        const triBits=[];
+        for(const t of triangles){let p=0n,z=0n;for(const q of t.qubits){p^=this.siteMask[this.index(q)];z^=1n<<BigInt(this.index(q));}if(p)throw Error('A triangle anticommutes with a complete-star X support.');triBits.push(z);}
+        this.triangleBasis=rSymRank(triBits);
+        this.stats={contractions:0,maxVariables:0,maxFreeVariables:0,zeroContractions:0,oddEliminations:0,pairEliminations:0};
+        this.lastContraction=null;this.prefixCache=new Map();
+      }
+      index(q){const i=this.qIndex.get(Number(q));if(i===undefined)throw Error('Unknown physical qubit '+q);return i;}
+      sid(id){const i=this.sIndex.get(Number(id));if(i===undefined)throw Error('Unknown complete star '+id);return i;}
+      solveOffset(delta){let shift=0n;while(delta){const p=delta.toString(2).length-1,old=this.basis.get(p);if(!old)return null;delta^=old.vec;shift^=old.comb;}return shift;}
+      state(){return {poly:new RPhasePolynomial(this.n),t:Array.from({length:this.n},(_,j)=>1n<<BigInt(j)),tc:0n,off:0n,phase8:0,logScale:-this.n/2,logSuccess:0,outcomes:[],projectionLog:[],dead:false,history:[]};}
+      copy(s){return {poly:s.poly.clone(),t:s.t.slice(),tc:s.tc,off:s.off,phase8:s.phase8,logScale:s.logScale,logSuccess:s.logSuccess,outcomes:s.outcomes.slice(),projectionLog:s.projectionLog.map(v=>({...v})),dead:s.dead,history:s.history.map(e=>({...e,qubits:e.qubits?.slice()}))};}
+      virtual(s,mask){let m=0n;for(const i of rSymIndices(mask))m^=s.t[i];return {mask:m,c:rSymParity(s.tc&mask)};}
+      physical(s,i,extraVirtual=0n,includeOff=true){const f=this.virtual(s,this.siteMask[i]);f.c^=rSymParity(extraVirtual&this.siteMask[i]);if(includeOff)f.c^=Number((s.off>>BigInt(i))&1n);return f;}
+      residual(s,sid){
+        let m=0n,c=0;
+        for(const [a,b] of this.starEdges[sid]){const oa=Number((s.off>>BigInt(a))&1n),ob=Number((s.off>>BigInt(b))&1n);if(oa)m^=this.siteMask[b];if(ob)m^=this.siteMask[a];c^=oa&ob;}
+        if(m&(1n<<BigInt(sid)))throw Error('Non-Hermitian star-frame Pauli: inconsistent geometry.');
+        const f=this.virtual(s,m);f.c^=c;return f;
+      }
+      applyStar(s,id){const sid=this.sid(id),f=this.residual(s,sid);s.poly.parity(2,f.mask,f.c);s.tc^=1n<<BigInt(sid);}
+      innerExact(A,B,explain=false){
+        const stat=this.stats;stat.contractions++;
+        if(A.dead||B.dead)return {zero:true,power:-Infinity,phase8:0};
+        const shift=this.solveOffset(A.off^B.off);
+        if(shift===null){stat.zeroContractions++;return {zero:true,power:-Infinity,phase8:0,reason:'Disjoint computational-basis affine supports'};}
+        const na=A.poly.n,nb=B.poly.n,n=na+nb,off=BigInt(na);
+        stat.maxVariables=Math.max(stat.maxVariables,n);
+        const p=new RPhasePolynomial(n);p.append(A.poly,0,1);p.append(B.poly,na,-1);
+        // Align the eta ground-state signs, not just the bit-string supports.
+        let previous=0n;
+        for(const sid of rSymIndices(shift)){
+          for(const [a,b] of this.starEdges[sid]){const fa=this.physical(A,a,previous,false),fb=this.physical(A,b,previous,false);p.product(fa.mask,fa.c,fb.mask,fb.c);}
+          previous^=1n<<BigInt(sid);
+        }
+        const eq=[];
+        for(let j=0;j<this.n;j++)eq.push({mask:A.t[j]^(B.t[j]<<off),c:Number(((A.tc^B.tc^shift)>>BigInt(j))&1n)});
+        const solved=rSymAffineSolve(eq,n);
+        if(!solved){stat.zeroContractions++;return {zero:true,power:-Infinity,phase8:0,reason:'Incompatible affine constraints'};}
+        stat.maxFreeVariables=Math.max(stat.maxFreeVariables,solved.nfree);
+        const reduced=p.substitute(solved.forms,solved.nfree),g=reduced.gauss();
+        stat.oddEliminations+=g.oddEliminations||0;stat.pairEliminations+=g.pairEliminations||0;
+        const result={...g,power:g.zero?-Infinity:g.power+A.logScale+B.logScale,phase8:rSymMod8(g.phase8+A.phase8-B.phase8),variables:n,freeVariables:solved.nfree,rank:solved.rank};
+        if(result.zero)stat.zeroContractions++;
+        if(explain)result.reduction={
+          prefactorPower:A.logScale+B.logScale,prefactorPhase8:rSymMod8(A.phase8-B.phase8),
+          groundSignAlignmentStars:rSymIndices(shift).map(i=>this.stars[i].id),
+          affineConstraintRank:solved.rank,originalVariables:n,freeVariables:solved.nfree,
+          reducedPolynomial:reduced.toJSON(),gaussSum:g,
+          interpretation:'Sum all binary assignments of the reduced polynomial symbolically, then multiply by the power-of-two and eighth-root-of-unity prefactor. No assignments or state amplitudes are enumerated.'
+        };
+        this.lastContraction={...result};return result;
+      }
+      overlap(A,B){return rSymComplex(this.innerExact(A,B));} // <B|A>, full phase retained
+      norm(s){if(s.dead)return 0;const n=this.innerExact(s,s);if(n.zero)return 0;if(n.phase8!==0)throw Error('Norm contraction is not positive real.');return 2**(n.power/2);}
+      rawNorm(s){return s.dead?0:2**(s.logSuccess/2);}
+      project(s,id,meta={}){
+        if(s.dead){s.outcomes.push(0);s.projectionLog.push({starId:id,p:0,w:null,step:meta.step??null,move:meta.move??null,unreachable:true});return;}
+        const before=this.innerExact(s,s);if(before.zero)throw Error('Cannot project a zero branch.');
+        const sid=this.sid(id),f=this.residual(s,sid),h=s.poly.grow(),bit=1n<<BigInt(h);
+        // Explicit (I +/- A)/2 branch, represented by one binary variable h.
+        s.poly.product(bit,0,f.mask,f.c^(meta.sign===-1?1:0));
+        s.t[sid]^=bit;s.logScale-=1;
+        const after=this.innerExact(s,s);
+        if(after.zero){s.dead=true;s.logSuccess=-Infinity;s.outcomes.push(0);s.projectionLog.push({starId:id,p:0,w:null,step:meta.step??null,move:meta.move??null});return;}
+        if(before.phase8!==0||after.phase8!==0)throw Error('Projector norm is not positive real.');
+        const logp=after.power-before.power,p=2**logp;
+        if(p>1+1e-9)throw Error('Projector probability exceeds one.');
+        // A positive real rescaling retains the phase of the successful branch.
+        s.logScale-=after.power/2;s.logSuccess+=logp;s.outcomes.push(p);
+        s.projectionLog.push({starId:id,p,w:2**(-logp/2),log2p:logp,step:meta.step??null,move:meta.move??null,variables:after.variables,freeVariables:after.freeVariables});
+      }
+      gate(s,ev){
+        s.history.push({...ev,qubits:ev.qubits?.slice()});
+        if(ev.type==='P'){this.project(s,ev.starId,ev);return;}
+        if(s.dead)return;
+        if(ev.type==='A'){this.applyStar(s,ev.starId);return;}
+        const ids=(ev.qubits||[]).map(q=>this.index(q));const a=ids[0],b=ids[1];
+        if(ev.type==='X'){s.off^=1n<<BigInt(a);return;}
+        if(ev.type==='Z'){const f=this.physical(s,a);s.poly.parity(2,f.mask,f.c);return;}
+        if(ev.type==='R'||ev.type==='Rdag'){
+          const sign=ev.type==='R'?1:-1,f=this.physical(s,a);
+          s.phase8=rSymMod8(s.phase8+sign);s.poly.parity(-sign,f.mask,f.c);return;
+        }
+        if(ev.type==='CZ'){if(a===b)throw Error('CZ needs two distinct qubits.');const fa=this.physical(s,a),fb=this.physical(s,b);s.poly.product(fa.mask,fa.c,fb.mask,fb.c);return;}
+        throw Error('Unsupported symbolic gate '+ev.type);
+      }
+      run(events){
+        const key=JSON.stringify(events.map(e=>[e.type,e.qubits??null,e.starId??null,e.sign??1,e.step??null,e.move??null]));
+        const old=this.prefixCache.get(key);if(old)return this.copy(old);
+        const s=this.state();for(const ev of events)this.gate(s,ev);
+        if(this.prefixCache.size>=24)this.prefixCache.delete(this.prefixCache.keys().next().value);
+        this.prefixCache.set(key,this.copy(s));return s;
+      }
+      starExpectation(s,id){if(s.dead)return NaN;const acted=this.copy(s);this.applyStar(acted,id);const z=this.overlap(acted,s);if(Math.abs(z.im)>1e-8)throw Error('Star expectation is not real.');return Math.abs(z.re)<1e-12?0:z.re;}
+      zStringReference(qubits){
+        let qbits=0n,parity=0n;
+        for(const q of qubits){const i=this.index(q);qbits^=1n<<BigInt(i);parity^=this.siteMask[i];}
+        const bt=rSymContains(this.triangleBasis,qbits);
+        return {value:parity?0:1,triangleProduct:bt,witnessStar:parity?this.stars[rSymIndex(parity&-parity)].id:null,boundarySectorNeeded:!parity&&!bt};
+      }
+      metadata(){return {method:'Exact phase-polynomial / residual-character contraction',reference:'normalized product_s (I+A_s)|all physical qubits 0>, with retained independent complete stars',completeStars:this.n,physicalQubits:this.sites.length,triangleRank:this.triangleBasis.size,diagonalReferenceRank:this.sites.length-this.n,extraDiagonalConstraints:this.sites.length-this.n-this.triangleBasis.size,amplitudeArraysAllocated:0,...this.stats};}
+    }
+    if(typeof module!=='undefined'&&module.exports)module.exports={RPhasePolynomial,RSymbolicEngine,rSymAffineSolve,rSymComplex};
+
+
+    rCalc.addEventListener('click',(ev)=>{
+      if(ev.target.id==='r-export-symbolic'&&rLastSymbolicReport){
+        const text=JSON.stringify(rLastSymbolicReport,(_,v)=>typeof v==='bigint'?v.toString():v,2);
+        const blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+        a.href=url;a.download='kagome_R_symbolic_'+rSelectedKind+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),500);
+      }
+      if(ev.target.id==='r-z-test'){
+        const input=document.getElementById('r-z-query'),answer=document.getElementById('r-z-answer');
+        try{
+          const qs=input.value.trim()?input.value.trim().split(/[\s,;]+/).map(Number):[];
+          if(qs.some(q=>!Number.isInteger(q)||!siteById.has(q)))throw Error('Enter valid qubit IDs; an empty list means identity.');
+          const c=rExactCache.zStringReference(qs);
+          answer.innerHTML='<p><strong>⟨Ω|Z(residual)|Ω⟩ = '+c.value+'</strong><br>'+(c.triangleProduct?'Residual is in the span of Bₜ (expectation +1).':c.witnessStar!==null?'It anticommutes with complete star A'+c.witnessStar+', proving expectation zero.':'Outside the Bₜ span, but +1 in the chosen open-boundary reference sector. Setting this term to zero would change the reference state.')+'</p>';
+        }catch(e){answer.textContent=e.message;}
+      }
+    });
 
     rSelect.addEventListener('change',()=>rSetup(rSelect.value));
     // Click the second canvas to edit interface X and star projector choices.
