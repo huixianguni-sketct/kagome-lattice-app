@@ -3534,7 +3534,7 @@ def build_interactive_lattice_html(lattice) -> str:
       return matching.length?[matching[0].q]:[];
     }
     function rStarsAuto(move,geom) {
-      const near=rPoint(move==='M21'?geom.q2:geom.q1),count=move==='Y'?4:3;
+      const near=rPoint(move==='M21'?geom.q2:geom.q1),count=4; // Four local source-star projectors (parallel and slanted).
       return starData.slice().sort((a,b)=>Math.hypot(a.center[0]-near.x,a.center[1]-near.y)-Math.hypot(b.center[0]-near.x,b.center[1]-near.y)).slice(0,count).map(s=>s.id);
     }
     function rUserXForSixCellJunction(geom) {
@@ -3615,7 +3615,7 @@ def build_interactive_lattice_html(lattice) -> str:
         : '6×6-specific extra X locations have not been established for this geometry; no q61/q68 overrides applied. ';
       const sourceNote=rM21SyndromeSuggestion?
         `<br><strong>2→1 triangle-only calibration:</strong> ${rEscape(rM21SyndromeSuggestion.reason)} ${rM21SyndromeSuggestion.ok?'Verified against both spectator contexts; this is not a fusion-state validation.':'No correction automatically inserted.'}`:'';
-      rOverview.innerHTML=`T-junction: exactly ${rGeom.armSteps} nearest-neighbor steps per arm; at least ${rGeom.minGeometricBuffer} complete stars between each possible pair of endpoints, plus at least one COMPLETE outward star between each endpoint and the physical open boundary (q0/q1/q2/qY: ${rGeom.boundaryStarIds.map(xs=>xs.map(id=>'A'+id).join(',')).join(' / ')}). Geometric clearance alone does not guarantee Bₜ=+1 or Aₛ=+1; all finished stages are audited below. Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}${sourceNote} Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
+      rOverview.innerHTML=`T-junction: exactly ${rGeom.armSteps} nearest-neighbor steps per arm; at least ${rGeom.minGeometricBuffer} complete stars between each possible pair of endpoints, plus at least one COMPLETE outward star between each endpoint and the physical open boundary (q0/q1/q2/qY: ${rGeom.boundaryStarIds.map(xs=>xs.map(id=>'A'+id).join(',')).join(' / ')}). Geometric clearance alone does not guarantee Bₜ=+1 or Aₛ=+1; all finished stages are audited below. Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}${sourceNote} Each parallel movement now projects four complete stars around its old endpoint. Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
       rCalc.innerHTML='<p>Complete both four-step processes to compare their final quantum states. The interface corrections must be validated first.</p>';
       rUpdateButtons();rRenderStep();setTimeout(rResize,350);
     }
@@ -3978,13 +3978,22 @@ def build_interactive_lattice_html(lattice) -> str:
       const beforeSpectator=rSpectatorFlux(beforeEv,info.spectator);
       const spectatorUnchanged=rSameIds(beforeSpectator,results[3].spectatorIds);
       const sourceClean=results[2].fluxNearSource.length===0;
+      // Check EVERY complete star intersecting the vacated interface region,
+      // not only the selected projectors. On the 6-step junction there are
+      // four complete source stars inside this 2.1-unit neighborhood.
+      const sourceCenter=rPoint(info.source);
+      const interfaceStarIds=starData.filter(st=>Math.hypot(st.center[0]-sourceCenter.x,st.center[1]-sourceCenter.y)<=2.1+1e-7).map(st=>st.id);
+      const unrestoredInterface=state?interfaceStarIds.filter(id=>{
+        const v=results[3].expectations[id];
+        return !Number.isFinite(v)||Math.abs(v-1)>1e-7;
+      }):null;
       const restored=state?checked.filter(id=>!Number.isFinite(results[3].expectations[id])||Math.abs(results[3].expectations[id]-1)>1e-7):null;
       const nPrior=stageStates?stageStates[0].outcomes.length:0;
       const newRatios=stageStates?stageStates[3].outcomes.slice(nPrior):null;
       const nonzero=newRatios?newRatios.every(x=>x>1e-12):null;
       const pCombined=newRatios?newRatios.reduce((a,b)=>a*b,1):null;
       const gap=rGapStarReport(projEv,info.after[0],info.after[1],engine,stageStates?stageStates[3]:null);
-      return {which,step,move,info,results,starIds,checked,projectors,restored,newRatios,nonzero,pCombined,spectatorUnchanged,sourceClean,inputValid:results[0].report.ok,gap};
+      return {which,step,move,info,results,starIds,checked,projectors,restored,interfaceStarIds,unrestoredInterface,newRatios,nonzero,pCombined,spectatorUnchanged,sourceClean,inputValid:results[0].report.ok,gap};
     }
     function rVFlag(value,yes,no,unknown='not evaluated'){
       if(value===null||value===undefined)return `<span class="r-v-neutral">${unknown}</span>`;
@@ -4026,6 +4035,8 @@ def build_interactive_lattice_html(lattice) -> str:
       html+=`<div class="r-v-row"><strong>Open-boundary one-star geometry:</strong> ${edge.perEndpoint.map(e=>'q'+e.endpoint+': '+e.geometricCount+' complete star(s) to nearest edge').join('; ')}. Full Aₛ/Bₜ cleanliness is checked in the eight-stage audit once both processes are completed.</div>`;
       html+=`<div class="r-v-row"><strong>One-star separation (after this move):</strong> ${gap.geometricCount} complete star centers in the endpoint gap; ${gap.geometricClean} have no adjacent Bₜ violations; ${gap.quantumOK===null?'star expectations unavailable':gap.quantumClean+' have both Bₜ=+1 locally and ⟨Aₛ⟩=+1'}. ${rVFlag(gap.quantumOK,'✓ At least one physically clean buffer star','✗ No fully restored buffer star','not yet validated')}.<br><small>Gap-star IDs: ${gap.stars.map(x=>'A'+x.id+(x.clean?' ✓':x.fluxFree?' (star unchecked)':' (flux nearby)')).join(', ')||'none'}.</small></div>`;
       if(ctx.restored!==null){
+        const fullInterfaceOK=ctx.unrestoredInterface.length===0;
+        html+=`<div class="r-v-row"><strong>Complete source-interface star check:</strong> ${rVFlag(fullInterfaceOK,'✓ Every nearby complete source star is +1','✗ Unrestored source stars: '+ctx.unrestoredInterface.map(id=>'A'+id).join(', '))}<br><small>Source neighborhood: ${ctx.interfaceStarIds.map(id=>'A'+id+' = '+rNumber(v[3].expectations[id])).join('; ')||'none'}.</small> This is a local diagnostic, not a fusion-space isometry proof.</div>`;
         html+=`<div class="r-v-row">${rVFlag(ctx.restored.length===0,'✓ All chosen projected stars have ⟨A⟩=+1','✗ Stars not restored: '+ctx.restored.map(id=>'A'+id).join(', '))}</div>`;
         html+=`<div class="r-v-row">${rVFlag(ctx.nonzero,'✓ Every projector branch has nonzero probability','✗ A projector branch has zero probability')}</div>`;
         html+=`<div class="r-v-row">Conditional projector probabilities: <span class="r-validation-codes">${ctx.checked.length?ctx.projectors.map((e,i)=>'A'+e.starId+': '+ctx.newRatios[i].toFixed(4)).join('; '):'no projectors'}</span><br>Combined conditional probability: <strong>${rNumber(ctx.pCombined)}</strong><br>Movement normalization w = 1/√p = <strong>${ctx.pCombined>0?rNumber(1/Math.sqrt(ctx.pCombined)):'undefined (zero branch)'}</strong><br>Each successful projector is positively normalized; the checkpoint state has norm 1.</div>`;
@@ -4361,6 +4372,7 @@ def build_interactive_lattice_html(lattice) -> str:
         rCalc.innerHTML='<p class="r-error">Invalid qubit or complete-star ID.</p>';return;
       }
       if(qs.length>8||stars.length>8){rCalc.innerHTML='<p class="r-error">Interface has too many proposed corrections; review the geometry.</p>';return;}
+      if((move==='M21'||move==='M0')&&stars.length!==4){rCalc.innerHTML='<p class="r-error">Parallel movement requires exactly four interface-star projectors. Select four complete star IDs.</p>';return;}
       if(move==='M21'&&qs.includes(rGeom.q2)){
         rCalc.innerHTML=`<p class="r-error">Position 2 (qubit ${rGeom.q2}) already receives one mandatory interface X. Remove it from the additional X list to avoid X²=I.</p>`;
         return;
