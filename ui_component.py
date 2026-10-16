@@ -3730,10 +3730,32 @@ def build_interactive_lattice_html(lattice) -> str:
         marker:{size:19,color:'#f59e0b',symbol:'square-open',line:{width:2,color:'#b45309'}},
         customdata:boundaryUnique.map(s=>s.id),hovertemplate:'Outward boundary-buffer star A%{customdata}<extra></extra>',
         name:'geometric-boundary-stars',showlegend:false};
+      let violatedNow=[];
+      let violatedStarShapes=[];
+      let violatedStarTrace={type:'scatter',mode:'markers+text',x:[],y:[],text:[],textposition:'top center',
+        textfont:{size:12,color:'#991b1b'},marker:{size:18,symbol:'diamond-open',color:'rgba(239,68,68,.08)',line:{width:2.3,color:'#dc2626'}},
+        hovertext:[],hoverinfo:'text',name:'violated-stars',showlegend:false};
+      try{
+        if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);
+        const stageState=rExactCache.run(events);
+        if(stageState && !stageState.dead){
+          violatedNow=starData
+            .map(st=>({star:st,value:rExactCache.starExpectation(stageState,st.id)}))
+            .filter(item=>Number.isFinite(item.value)&&Math.abs(item.value-1)>1e-7);
+          for(const item of violatedNow){
+            const path=polygonPath(item.star.inner_qubits);
+            if(path)violatedStarShapes.push({type:'path',path,fillcolor:'rgba(248,113,113,.08)',line:{width:2,color:'#dc2626',dash:'dot'},layer:'below'});
+            violatedStarTrace.x.push(item.star.center[0]);
+            violatedStarTrace.y.push(item.star.center[1]);
+            violatedStarTrace.text.push('A'+item.star.id);
+            violatedStarTrace.hovertext.push(`Violated star A${item.star.id}: ⟨A⟩ = ${item.value.toFixed(6)}`);
+          }
+        }
+      }catch(_err){}
       const labels={type:'scatter',mode:'markers+text',x:points.map(p=>rPoint(p[1]).x),y:points.map(p=>rPoint(p[1]).y),text:points.map(p=>p[0]),textposition:'bottom center',textfont:{size:15,color:'#0f172a'},marker:{size:17,symbol:'circle-open',line:{width:2,color:'#0f172a'}},hoverinfo:'skip',showlegend:false};
       const xvals=siteData.map(s=>s.x),yvals=siteData.map(s=>s.y);
-      const layout={margin:{l:26,r:18,t:26,b:24},height:530,showlegend:false,hovermode:'closest',uirevision:'r-study',paper_bgcolor:'#fff',plot_bgcolor:'#fff',xaxis:{visible:false,range:[Math.min(...xvals)-.8,Math.max(...xvals)+.8]},yaxis:{visible:false,scaleanchor:'x',scaleratio:1,range:[Math.min(...yvals)-.8,Math.max(...yvals)+.8]},shapes:[...outlines,...projectorShapes]};
-      Promise.resolve(Plotly.react(rPlot,[traceEdges,traceSites,...czTraces,xTrace,allStarCenters,gapTrace,boundaryTrace,projectorTrace,labels],layout,{displaylogo:false,responsive:true,scrollZoom:true})).then(()=>{
+      const layout={margin:{l:26,r:18,t:26,b:24},height:530,showlegend:false,hovermode:'closest',uirevision:'r-study',paper_bgcolor:'#fff',plot_bgcolor:'#fff',xaxis:{visible:false,range:[Math.min(...xvals)-.8,Math.max(...xvals)+.8]},yaxis:{visible:false,scaleanchor:'x',scaleratio:1,range:[Math.min(...yvals)-.8,Math.max(...yvals)+.8]},shapes:[...outlines,...projectorShapes,...violatedStarShapes]};
+      Promise.resolve(Plotly.react(rPlot,[traceEdges,traceSites,...czTraces,xTrace,allStarCenters,gapTrace,boundaryTrace,projectorTrace,violatedStarTrace,labels],layout,{displaylogo:false,responsive:true,scrollZoom:true})).then(()=>{
         if(!rPlot._rClickBound && typeof rPlot.on==='function') {
           rPlot.on('plotly_click',rHandlePlotClick);rPlot._rClickBound=true;
         }
@@ -3757,8 +3779,19 @@ def build_interactive_lattice_html(lattice) -> str:
       const fluxes=rFluxIds(rUnitaryOnly(events));
       const label=rActiveStep?`${rActiveProcess} · Step ${rActiveStep}: ${rDescriptions[active]} · checkpoint: ${rCheckpoint}`:'Choose one of the process buttons.';
       const value=`${counts.X} X · ${counts.R} R · ${counts.CZ} CZ · ${counts.P} star projectors; ${fluxes.length} excited triangles before projectors`;
+      let violatedStage='';
+      try{
+        if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);
+        const stageState=rExactCache.run(events);
+        if(stageState && !stageState.dead){
+          const ids=starData.filter(st=>{const v=rExactCache.starExpectation(stageState,st.id);return Number.isFinite(v)&&Math.abs(v-1)>1e-7;}).map(st=>'A'+st.id);
+          violatedStage=ids.length?`Violated stars shown on the canvas: ${ids.join(', ')}`:'No violated complete stars at this checkpoint.';
+        }else if(stageState && stageState.dead){
+          violatedStage='This checkpoint has zero postselection weight, so violated-star readout is not shown.';
+        }
+      }catch(_err){}
       const diff=rActiveStep>1?
-        `${active==='M21'?`Fixed X at position 2: q${rGeom.q2}; `:''}Additional interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}`:'';
+        `${active==='M21'?`Fixed X at position 2: q${rGeom.q2}; `:''}Additional interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}${violatedStage?`; ${violatedStage}`:''}`:(violatedStage||'');
       document.getElementById('r-stage-caption').innerHTML=`<strong>${rEscape(label)}</strong><div>${rEscape(value)}</div><div>${rEscape(diff)}</div>`;
       if(rCompleted.A===4 && rCompleted.B===4)rComputeR();
       else rCalc.innerHTML=`<p><strong>Not evaluated yet.</strong> Complete both four-stage processes. For each move, examine the suggested interface X and projector star IDs and correct them as needed.</p><div class="r-math">R<sub>candidate</sub> = &lt;Ψ<sub>2</sub>|Ψ<sub>1</sub>&gt; / (‖Ψ<sub>1</sub>‖‖Ψ<sub>2</sub>‖)</div>`;
