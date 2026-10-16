@@ -3351,32 +3351,104 @@ def build_interactive_lattice_html(lattice) -> str:
         return {base:path,events,cz,ordered:[...built.gateOrder.entries()],xSites:built.xIds};
       } finally {anyonKind=was;rCompiling=saved;}
     }
+    // Require a visible buffer of at least two COMPLETE lattice stars
+    // between every pair of anyon endpoint regions, including intermediate
+    // configurations in both Kawagoe-Levin process orders.  The inner
+    // (2.5-unit) margins exclude the RGB endpoint neighbourhoods.  A
+    // separate quantum-state check below determines whether these stars
+    // truly have A_s=+1 and whether their local triangles are flux-free.
+    const rMinBufferStars=2;
+    const rPreferredArmSteps=[8,7];
+    function rBufferStarsBetween(a,b) {
+      const p=rPoint(a),q=rPoint(b);
+      if(!p||!q)return [];
+      const vx=q.x-p.x,vy=q.y-p.y,L=Math.hypot(vx,vy);
+      if(L<5.0)return [];
+      const ux=vx/L,uy=vy/L;
+      return starData.map(st=>{
+        const dx=st.center[0]-p.x,dy=st.center[1]-p.y;
+        return {star:st,along:dx*ux+dy*uy,across:Math.abs(dx*uy-dy*ux)};
+      }).filter(x=>x.along>=2.5-1e-6&&x.along<=L-2.5+1e-6&&x.across<=1.3+1e-6)
+        .sort((x,y)=>x.along-y.along||x.across-y.across)
+        .map(x=>x.star);
+    }
+    function rGapPairs(q0,q1,q2,qY){
+      // All pairs that occur after splitting or after any intermediate move.
+      return [[q1,q2],[qY,q2],[qY,q1],[q0,q2],[q0,q1],[q0,qY]];
+    }
     function rFindGeometry(kind) {
       const xs=siteData.map(s=>s.x),ys=siteData.map(s=>s.y);
       const xmid=(Math.min(...xs)+Math.max(...xs))/2,ymid=(Math.min(...ys)+Math.max(...ys))/2;
       const rt=Math.sqrt(3)/2;
-      const dirs=[[.5,-rt],[-.5,-rt],[.5,rt],[-.5,rt]];
-      const possibilities=[];
-      for(const s of siteData) {
-        for(const diag of dirs) {
-          const initial=rWalk(s.id,1,0,4), right=initial?initial.at(-1):null;
-          const left=rWalk(s.id,-1,0,4);
-          const move21=right!==null?rWalk(right,-1,0,4):null;
-          const diagPath=rWalk(s.id,diag[0],diag[1],4);
-          if(!initial||!left||!move21||!diagPath)continue;
-          // The first qubit of each movement is NEXT to its previous endpoint.
-          const arr={S:initial,Y:diagPath.slice(1),M21:move21.slice(1),M0:left.slice(1)};
-          if(Object.values(arr).some(p=>p.length<2))continue;
-          // BuildSSpine uses a genuinely directed triangle rule.
-          const built=Object.fromEntries(Object.entries(arr).map(([k,p])=>[k,rMakeRibbon(p,kind)]));
-          if(Object.values(built).some(p=>!p))continue;
-          const distance=Math.hypot(s.x-xmid,s.y-ymid);
-          const edgeCost=Math.max(0,3.0-rPoint(left.at(-1)).x)+Math.max(0,rPoint(right).x-Math.max(...xs)+3);
-          possibilities.push({distance:distance+edgeCost,geom:{q0:left.at(-1),q1:s.id,q2:right,qY:diagPath.at(-1),paths:arr,diagnosticDirection:diag},segments:built});
+      // Y should lie BELOW the horizontal 0--1--2 axis as in the diagram.
+      const dirs=[[.5,-rt],[-.5,-rt]];
+      for(const armSteps of rPreferredArmSteps){
+        const candidates=[];
+        for(const site of siteData){
+          const q1=site.id;
+          const initial=rWalk(q1,1,0,armSteps+1);
+          const left=rWalk(q1,-1,0,armSteps+1);
+          if(!initial||!left)continue;
+          const q0=left.at(-1),q2=initial.at(-1);
+          const move21=rWalk(q2,-1,0,armSteps+1);
+          if(!move21)continue;
+          for(const diag of dirs){
+            const diagPath=rWalk(q1,diag[0],diag[1],armSteps+1);
+            if(!diagPath)continue;
+            const qY=diagPath.at(-1);
+            const gapPairs=rGapPairs(q0,q1,q2,qY);
+            const gapCounts=gapPairs.map(([a,b])=>rBufferStarsBetween(a,b).length);
+            if(gapCounts.some(n=>n<rMinBufferStars))continue;
+            // Keep a physical boundary buffer as well as inter-anyon gaps;
+            // prefer the junction with greatest clearance from incomplete
+            // stars, breaking ties by position near the center of the patch.
+            const pids=[q0,q1,q2,qY];
+            const boundaryPenalty=pids.reduce((sum,id)=>{
+              const p=rPoint(id),d=Math.min(p.x-Math.min(...xs),Math.max(...xs)-p.x,
+                p.y-Math.min(...ys),Math.max(...ys)-p.y);
+              return sum+Math.max(0,3-d)**2;
+            },0);
+            const centerCost=Math.hypot(site.x-xmid,site.y-ymid);
+            const arr={S:initial,Y:diagPath.slice(1),M21:move21.slice(1),M0:left.slice(1)};
+            candidates.push({cost:centerCost+2*boundaryPenalty,geom:{q0,q1,q2,qY,
+              paths:arr,diagnosticDirection:diag,armSteps,gapCounts,
+              minGeometricBuffer:Math.min(...gapCounts)}});
+          }
+        }
+        candidates.sort((a,b)=>a.cost-b.cost||a.geom.q1-b.geom.q1);
+        // Only compile physically admissible candidates, rather than
+        // running an expensive joint-CZ search at every lattice qubit.
+        for(const cand of candidates.slice(0,30)){
+          const built={};let valid=true;
+          for(const [name,path] of Object.entries(cand.geom.paths)){
+            const result=rMakeRibbon(path,kind);
+            if(!result){valid=false;break;}
+            built[name]=result;
+          }
+          if(!valid)continue;
+          return {geom:cand.geom,segments:built};
         }
       }
-      possibilities.sort((a,b)=>a.distance-b.distance);
-      return possibilities[0]||null;
+      return null; // NEVER silently fall back to a too-short junction.
+    }
+    function rGapStarReport(events,a,b,engine=null,state=null){
+      const stars=rBufferStarsBetween(a,b);
+      const flux=new Set(rFluxIds(rUnitaryOnly(events)).map(t=>t.id));
+      const evaluated=stars.map(st=>{
+        const tips=new Set(st.x_qubits);
+        const touching=triangleData.filter(t=>t.qubits.some(q=>tips.has(q)));
+        const fluxFree=touching.every(t=>!flux.has(t.id));
+        const expectation=(engine&&state&&!state.dead)?engine.starExpectation(state,st.id):null;
+        const starClear=expectation===null?null:Number.isFinite(expectation)&&Math.abs(expectation-1)<1e-7;
+        return {id:st.id,fluxFree,expectation,starClear,
+          clean:fluxFree&&(starClear===true),geometric:fluxFree};
+      });
+      const geometricClean=evaluated.filter(s=>s.geometric).length;
+      const quantumClean=evaluated.filter(s=>s.clean).length;
+      return {stars:evaluated,geometricCount:stars.length,geometricClean,
+        quantumClean,geometryOK:stars.length>=rMinBufferStars,
+        fluxOK:geometricClean>=rMinBufferStars,
+        quantumOK:engine&&state&&!state.dead?quantumClean>=rMinBufferStars:null};
     }
     function rFluxIds(events) {
       const xcounts=new Set();for(const ev of events)if(ev.type==='X'&&ev.qubits.length===1){const q=ev.qubits[0];if(xcounts.has(q))xcounts.delete(q);else xcounts.add(q);}
@@ -3423,7 +3495,7 @@ def build_interactive_lattice_html(lattice) -> str:
       rCompleted={A:0,B:0};rActiveProcess='A';rActiveStep=0;
       rStudio.hidden=!kind;setTimeout(rResize,120);
       if(!kind)return;
-      if(!model){rOverview.textContent='No complete T-junction fits this open patch. Increase the lattice size (for example 8 × 8).';rCalc.textContent='No R result: a complete junction could not be constructed.';rUpdateButtons();return;}
+      if(!model){rOverview.textContent='No T-junction meets the requirement of two complete buffer stars between each endpoint pair. Increase the lattice (try 12 × 12 or larger); this workbench will not fall back to short, overlapping anyon arms.';rCalc.textContent='No R result: a complete junction could not be constructed.';rUpdateButtons();return;}
       const userX=rUserXForSixCellJunction(rGeom);
       for(const move of ['Y','M21','M0']){
         const automatic=rCorrectionAuto(move,rGeom,rSegments);
@@ -3436,7 +3508,7 @@ def build_interactive_lattice_html(lattice) -> str:
       const userInfo=userX
         ? '<strong>6×6 corrections from user inspection:</strong> 1→Y also applies X(q61); 2→1 also applies X(q68), in addition to mandatory X(q67). These are applied in BOTH braiding processes for s1 and s2. '
         : '6×6-specific extra X locations have not been established for this geometry; no q61/q68 overrides applied. ';
-      rOverview.innerHTML=`Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
+      rOverview.innerHTML=`Extended T-junction: ${rGeom.armSteps} nearest-neighbor steps per arm; at least ${rGeom.minGeometricBuffer} complete stars geometrically between every pair of endpoint regions. Actual clean-star status is checked after each process stage (geometric separation alone does not guarantee A=+1). Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
       rCalc.innerHTML='<p>Complete both four-step processes to compare their final quantum states. The interface corrections must be validated first.</p>';
       rUpdateButtons();rRenderStep();setTimeout(rResize,350);
     }
@@ -3539,10 +3611,16 @@ def build_interactive_lattice_html(lattice) -> str:
         projectorTrace.x.push(st.center[0]);projectorTrace.y.push(st.center[1]);projectorTrace.text.push('P'+st.id);projectorTrace.hovertext.push('Project (I+A_'+st.id+')/2');
       }
       const allStarCenters={type:'scatter',mode:'markers',x:starData.map(s=>s.center[0]),y:starData.map(s=>s.center[1]),marker:{size:10,color:'#0284c7',opacity:.28,symbol:'diamond'},customdata:starData.map(s=>s.id),hovertemplate:'Star A%{customdata}<extra></extra>',name:'r-star-centers',showlegend:false};
+      const shownEndpoints=rActiveStep===1?[rGeom.q1,rGeom.q2]:rMoveEndpoints(rActiveProcess,rActiveStep).after;
+      const gapStars=rBufferStarsBetween(shownEndpoints[0],shownEndpoints[1]);
+      const gapTrace={type:'scatter',mode:'markers',x:gapStars.map(s=>s.center[0]),y:gapStars.map(s=>s.center[1]),
+        marker:{size:17,color:'#16a34a',opacity:.6,symbol:'diamond-open',line:{width:2,color:'#15803d'}},
+        customdata:gapStars.map(s=>s.id),hovertemplate:'Buffer star A%{customdata}: inspect excitation validation<extra></extra>',
+        name:'geometric-buffer-stars',showlegend:false};
       const labels={type:'scatter',mode:'markers+text',x:points.map(p=>rPoint(p[1]).x),y:points.map(p=>rPoint(p[1]).y),text:points.map(p=>p[0]),textposition:'bottom center',textfont:{size:15,color:'#0f172a'},marker:{size:17,symbol:'circle-open',line:{width:2,color:'#0f172a'}},hoverinfo:'skip',showlegend:false};
       const xvals=siteData.map(s=>s.x),yvals=siteData.map(s=>s.y);
       const layout={margin:{l:26,r:18,t:26,b:24},height:530,showlegend:false,hovermode:'closest',uirevision:'r-study',paper_bgcolor:'#fff',plot_bgcolor:'#fff',xaxis:{visible:false,range:[Math.min(...xvals)-.8,Math.max(...xvals)+.8]},yaxis:{visible:false,scaleanchor:'x',scaleratio:1,range:[Math.min(...yvals)-.8,Math.max(...yvals)+.8]},shapes:[...outlines,...projectorShapes]};
-      Promise.resolve(Plotly.react(rPlot,[traceEdges,traceSites,...czTraces,xTrace,allStarCenters,projectorTrace,labels],layout,{displaylogo:false,responsive:true,scrollZoom:true})).then(()=>{
+      Promise.resolve(Plotly.react(rPlot,[traceEdges,traceSites,...czTraces,xTrace,allStarCenters,gapTrace,projectorTrace,labels],layout,{displaylogo:false,responsive:true,scrollZoom:true})).then(()=>{
         if(!rPlot._rClickBound && typeof rPlot.on==='function') {
           rPlot.on('plotly_click',rHandlePlotClick);rPlot._rClickBound=true;
         }
@@ -3622,6 +3700,33 @@ def build_interactive_lattice_html(lattice) -> str:
         <p class="r-caveat">This compresses the user's residual-Z summation rather than listing exponentially many terms. It supports the displayed X/Z/R/CZ/star-projector gate set and independent open-patch star basis; it is not a generic polynomial-time simulator for arbitrary quantum gates.</p>
       </details>`;
     }
+    function rAllStageBufferAudit(engine){
+      const rows=[];
+      for(const which of ['A','B'])for(let step=1;step<=4;step++){
+        const events=rStepEvents(which,step);
+        const endpoints=step===1?[rGeom.q1,rGeom.q2]:rMoveEndpoints(which,step).after;
+        const state=engine.run(events);
+        const gap=rGapStarReport(events,endpoints[0],endpoints[1],engine,state);
+        const flux=rEndpointFluxReport(events,endpoints);
+        rows.push({which,step,endpoints,geometricStars:gap.geometricCount,
+          cleanStars:gap.quantumClean,cleanIDs:gap.stars.filter(x=>x.clean).map(x=>x.id),
+          separationOK:gap.quantumOK===true,fluxCount:flux.flux.length,
+          endpointsOK:flux.ok,postselectionAlive:!state.dead});
+      }
+      return rows;
+    }
+    function rAllStageAuditHTML(rows){
+      let html='<details open><summary><strong>Complete two-star gap audit (all eight stages)</strong></summary>';
+      html+='<table class="r-symbolic-table"><thead><tr><th>Process / step</th><th>Clean stars / complete gap stars</th><th>Endpoint flux</th></tr></thead><tbody>';
+      for(const x of rows){
+        const move=rSequences[x.which][x.step-1];
+        html+=`<tr><td>(${x.which==='A'?'1':'2'}) · ${x.step}: ${rEscape(rDescriptions[move])}</td>`+
+          `<td>${x.cleanStars}/${x.geometricStars} ${x.separationOK?'✓':'✗'}<br><small>${x.cleanIDs.map(id=>'A'+id).join(', ')||'none'}</small></td>`+
+          `<td>${x.fluxCount} Bₜ=−1 ${x.endpointsOK?'✓':'✗'}${x.postselectionAlive?'':' (zero branch)'}</td></tr>`;
+      }
+      html+='</tbody></table><p class="r-caveat">A clean buffer star is a complete Aₛ with ⟨Aₛ⟩=+1 and no excited Bₜ sharing its six X-tip qubits. At least two clean stars are required between each actual pair of endpoints, after every completed stage. Passing the gap check alone does not guarantee that all endpoint fluxes or fusion data are correct.</p></details>';
+      return html;
+    }
     function rComputeR(){
       const A=rStepEvents('A',4),B=rStepEvents('B',4),cA=rWholeStateChecks(A,rGeom.q0,rGeom.qY),cB=rWholeStateChecks(B,rGeom.q0,rGeom.qY);
       let section=`<p><strong>Two protocol outputs:</strong> (1): ${cA.fluxIds.length} excited triangles; (2): ${cB.fluxIds.length}. ${cA.ok&&cB.ok?'Both have three RGB triangles near each endpoint.':'The final triangle pattern is not two clean RGB endpoints.'}</p>`;
@@ -3654,19 +3759,26 @@ def build_interactive_lattice_html(lattice) -> str:
           const starB=checked.map(id=>({id,value:rExactCache.starExpectation(second,id)}));
           const brokenA=starA.filter(s=>!Number.isFinite(s.value)||Math.abs(s.value-1)>1e-7).map(s=>s.id);
           const brokenB=starB.filter(s=>!Number.isFinite(s.value)||Math.abs(s.value-1)>1e-7).map(s=>s.id);
-          const passes=cA.ok&&cB.ok&&rSameIds(cA.fluxIds.slice().sort((a,b)=>a-b),cB.fluxIds.slice().sort((a,b)=>a-b))&&brokenA.length===0&&brokenB.length===0&&Math.abs(mag-1)<1e-9;
+          const gapA=rGapStarReport(A,rGeom.q0,rGeom.qY,rExactCache,first);
+          const gapB=rGapStarReport(B,rGeom.q0,rGeom.qY,rExactCache,second);
+          const stageAudit=rAllStageBufferAudit(rExactCache);
+          const allGapsOK=stageAudit.every(x=>x.separationOK&&x.postselectionAlive);
+          const allEndpointsOK=stageAudit.every(x=>x.endpointsOK);
+          const passes=cA.ok&&cB.ok&&allGapsOK&&allEndpointsOK&&gapA.quantumOK&&gapB.quantumOK&&rSameIds(cA.fluxIds.slice().sort((a,b)=>a-b),cB.fluxIds.slice().sort((a,b)=>a-b))&&brokenA.length===0&&brokenB.length===0&&Math.abs(mag-1)<1e-9;
           const status=passes?'Phase-only outputs in this finite-patch test — transport/species still need independent validation':'INCONCLUSIVE — do not identify the anyon from this overlap';
           section+=`<div class="r-math">Normalized ⟨ψ₂|ψ₁⟩ = <strong>${rFormatComplex(w)}</strong><br>Exact form: ${rExactForm(exact)}<br>|overlap| = ${mag.toFixed(8)}${phase===null?'':`; arg / π = ${phase.toFixed(6)}`}<br>Final normalized norms: ${rNumber(n1)}, ${rNumber(n2)}</div>`;
           section+=`<p><strong>${status}</strong></p>`;
+          section+=`<p><strong>Required two-star buffer:</strong> process (1): ${gapA.quantumClean} clean out of ${gapA.geometricCount} complete corridor stars; process (2): ${gapB.quantumClean} clean out of ${gapB.geometricCount}. ${gapA.quantumOK&&gapB.quantumOK?'Both final endpoint gaps have at least two stars with flux-free adjacent triangles and ⟨Aₛ⟩=+1.':'Insufficient clean-star separation in one or both final states. Correct the microscopic movement before interpreting a phase.'}</p>`;
           if(!passes&&mag<1-1e-9)section+='<p class="r-error">The output states are not proportional. Normalization is already included; it cannot turn a magnitude below one into a valid exchange phase.</p>';
+          section+=rAllStageAuditHTML(stageAudit);
           section+=rWeightTable(first,'A')+rWeightTable(second,'B');
           section+=`<details><summary><strong>Ground-state sandwich and total normalization</strong></summary><div class="r-math">Kⱼ = ordered circuit with unscaled P=(I+A)/2<br>⟨Ω|K₂†K₁|Ω⟩ = ${rFormatComplex(z)}<br>Exact raw form: ${rExactForm(rawExact)}<br>⟨Ω|K₁†K₁|Ω⟩ = ${rNumber(rawN1**2)}<br>⟨Ω|K₂†K₂|Ω⟩ = ${rNumber(rawN2**2)}<br>Total w₁ = ${rNumber(1/rawN1)}; total w₂ = ${rNumber(1/rawN2)}<br>⟨ψ₂|ψ₁⟩ = (∏ w₂)(∏ w₁) ⟨Ω|K₂†K₁|Ω⟩</div></details>`;
           section+=`<p>Final selected-star check: process (1) ${brokenA.length?'A'+brokenA.join(', A')+' not restored':'all requested stars +1'}; process (2) ${brokenB.length?'A'+brokenB.join(', A')+' not restored':'all requested stars +1'}.</p>`;
           section+=rSymbolicMethodHTML(rExactCache,exact);
-          section+='<p class="r-caveat">The positive w factors normalize these specific successful branches. This alone does not establish state-independent success probability or preservation of a multidimensional fusion space. No boundary buffer, arm lengths, CZs or interface choices have been changed by this calculator update.</p>';
+          section+='<p class="r-caveat">The positive w factors normalize these specific successful branches. This alone does not establish state-independent success probability or preservation of a multidimensional fusion space. This longer-arm geometry changes the generated ribbons; heuristic interface operations may require recalibration, and no R phase is accepted if the clean-star buffer fails.</p>';
           const elapsed=performance.now()-start;
           section+=`<p class="r-caveat">Calculation and selected-star checks: ${elapsed.toFixed(1)} ms on this browser.</p><button class="btn" id="r-export-symbolic">Export calculation JSON</button>`;
-          rLastSymbolicReport={status,kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,engine:rExactCache.metadata(),normalization:'positive normalization after every successful star projector',eventsA:A,eventsB:B,projectionGroupsA:rWeightGroups(first,'A'),projectionGroupsB:rWeightGroups(second,'B'),projectorsA:first.projectionLog,projectorsB:second.projectionLog,rawNormA:rawN1,rawNormB:rawN2,normalizedNormA:n1,normalizedNormB:n2,rawOverlap:z,overlap:w,exactOverlap:exact,exactRawOverlap:rawExact,magnitude:mag,phasePi:phase,selectedStarExpectationsA:starA,selectedStarExpectationsB:starB,triangleIdsA:cA.fluxIds,triangleIdsB:cB.fluxIds,timeMs:elapsed};
+          rLastSymbolicReport={status,kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,engine:rExactCache.metadata(),normalization:'positive normalization after every successful star projector',eventsA:A,eventsB:B,projectionGroupsA:rWeightGroups(first,'A'),projectionGroupsB:rWeightGroups(second,'B'),projectorsA:first.projectionLog,projectorsB:second.projectionLog,rawNormA:rawN1,rawNormB:rawN2,normalizedNormA:n1,normalizedNormB:n2,rawOverlap:z,overlap:w,exactOverlap:exact,exactRawOverlap:rawExact,magnitude:mag,phasePi:phase,selectedStarExpectationsA:starA,selectedStarExpectationsB:starB,bufferA:gapA,bufferB:gapB,allStageBufferAudit:stageAudit,triangleIdsA:cA.fluxIds,triangleIdsB:cB.fluxIds,timeMs:elapsed};
           if(token!==rCalcToken)return;
           rCalc.innerHTML=section;setTimeout(rResize,120);
         }catch(e){rCalc.innerHTML=section+'<p class="r-error">Symbolic evaluation failed: '+rEscape(e.message)+'</p>';console.error(e);}
@@ -3711,7 +3823,8 @@ def build_interactive_lattice_html(lattice) -> str:
       const newRatios=stageStates?stageStates[3].outcomes.slice(nPrior):null;
       const nonzero=newRatios?newRatios.every(x=>x>1e-12):null;
       const pCombined=newRatios?newRatios.reduce((a,b)=>a*b,1):null;
-      return {which,step,move,info,results,starIds,checked,projectors,restored,newRatios,nonzero,pCombined,spectatorUnchanged,sourceClean,inputValid:results[0].report.ok};
+      const gap=rGapStarReport(projEv,info.after[0],info.after[1],engine,stageStates?stageStates[3]:null);
+      return {which,step,move,info,results,starIds,checked,projectors,restored,newRatios,nonzero,pCombined,spectatorUnchanged,sourceClean,inputValid:results[0].report.ok,gap};
     }
     function rVFlag(value,yes,no,unknown='not evaluated'){
       if(value===null||value===undefined)return `<span class="r-v-neutral">${unknown}</span>`;
@@ -3737,6 +3850,8 @@ def build_interactive_lattice_html(lattice) -> str:
       html+=`<div class="r-v-row">${rVFlag(ctx.sourceClean,'✓ Old interface flux cleared after X','✗ Residual interface flux after X')} · ${rVFlag(validFlux.ok,'✓ Final RGB clusters at targets','✗ Final RGB clusters not clean')} · ${rVFlag(ctx.spectatorUnchanged,'✓ Spectator triangle IDs unchanged','✗ Spectator triangle IDs changed')}</div>`;
       html+=`<p class="r-v-hint">*Source flux means excited triangle centers within 1.15 lattice units of the source. RGB locality uses a 1.85-unit radius and checks three distinct colors at each expected endpoint. These geometric thresholds are diagnostics, not topological proofs.</p>`;
       html+=`<div class="r-v-row">Final triangle IDs: <span class="r-validation-codes">${validFlux.flux.map(t=>'B'+t.id).join(', ')||'none'}</span></div>`;
+      const gap=ctx.gap;
+      html+=`<div class="r-v-row"><strong>Two-star separation (after this move):</strong> ${gap.geometricCount} complete star centers in the endpoint gap; ${gap.geometricClean} have no adjacent Bₜ violations; ${gap.quantumOK===null?'star expectations unavailable':gap.quantumClean+' have both Bₜ=+1 locally and ⟨Aₛ⟩=+1'}. ${rVFlag(gap.quantumOK,'✓ At least two physically clean buffer stars','✗ Fewer than two fully restored buffer stars','not yet validated')}.<br><small>Gap-star IDs: ${gap.stars.map(x=>'A'+x.id+(x.clean?' ✓':x.fluxFree?' (star unchecked)':' (flux nearby)')).join(', ')||'none'}.</small></div>`;
       if(ctx.restored!==null){
         html+=`<div class="r-v-row">${rVFlag(ctx.restored.length===0,'✓ All chosen projected stars have ⟨A⟩=+1','✗ Stars not restored: '+ctx.restored.map(id=>'A'+id).join(', '))}</div>`;
         html+=`<div class="r-v-row">${rVFlag(ctx.nonzero,'✓ Every projector branch has nonzero probability','✗ A projector branch has zero probability')}</div>`;
@@ -3765,7 +3880,11 @@ def build_interactive_lattice_html(lattice) -> str:
       if(!rGeom||!rActiveStep){rValidationContent.innerHTML='<p>Choose one of the movement buttons to inspect its checkpoints.</p>';return;}
       if(rActiveStep===1){
         const ev=rStepEvents(rActiveProcess,1),report=rEndpointFluxReport(ev,[rGeom.q1,rGeom.q2]);
-        rValidationContent.innerHTML=`<p>Initial splitting S(1,2): ${report.flux.length} excited triangles. Expected two RGB endpoints: ${rVFlag(report.ok,'geometrically consistent','not yet consistent')}.</p><p class="r-v-hint">Choose movement step 2, 3 or 4 to inspect the ribbon, X and projector checkpoints.</p>`;
+        let splitGap;
+        try{if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);
+          splitGap=rGapStarReport(ev,rGeom.q1,rGeom.q2,rExactCache,rExactCache.run(ev));}
+        catch(e){splitGap=rGapStarReport(ev,rGeom.q1,rGeom.q2);}
+        rValidationContent.innerHTML=`<p>Initial splitting S(1,2): ${report.flux.length} excited triangles. Expected two RGB endpoints: ${rVFlag(report.ok,'geometrically consistent','not yet consistent')}.</p><p><strong>Buffer between 1 and 2:</strong> ${splitGap.geometricCount} complete stars, ${splitGap.geometricClean} flux-free, ${splitGap.quantumOK===null?'star expectation unavailable':splitGap.quantumClean+' fully restored'}. ${rVFlag(splitGap.quantumOK,'At least two clean stars','Insufficient clean buffer stars','Not fully checked')}.</p><p class="r-v-hint">Choose movement step 2, 3 or 4 to inspect the ribbon, X and projector checkpoints.</p>`;
         return;
       }
       rValidationContent.innerHTML='<p>Evaluating interface checkpoints…</p>';
@@ -4046,7 +4165,7 @@ def build_interactive_lattice_html(lattice) -> str:
         // The fixed X(q2) already exists as a mandatory interface gate.
         if(move==='M21'&&id===rGeom.q2)return;
         rAdjust[move].x=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
-      } else if(name==='r-star-centers' && Number.isInteger(Number(p.customdata))) {
+      } else if((name==='r-star-centers'||name==='geometric-buffer-stars') && Number.isInteger(Number(p.customdata))) {
         const id=Number(p.customdata),arr=rAdjust[move].stars;
         rAdjust[move].stars=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
       } else return;
