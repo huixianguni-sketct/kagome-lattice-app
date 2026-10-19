@@ -36,7 +36,6 @@ def _site_color(site) -> str:
     return "#9ca3af"
 
 
-
 def _canonical_cycle(cycle):
     """Canonicalize a cyclic list up to rotation and reversal."""
     seq = list(cycle)
@@ -813,6 +812,15 @@ def build_interactive_lattice_html(lattice) -> str:
     const nearestNeighborKeys = new Set(
       edgePairs.map(([a, b]) => pairKey(a, b))
     );
+    
+    const mNeighborIds = new Map(
+      siteData,map(s => [s.id, new Set()])
+    );
+    
+    for (const [a, b] of edgePairs) {
+      mNeighborIds.get(a).add(b);
+      mNeighborIds.get(b).add(a);
+    }
 
     let currentMode = "Z";
     let localOps = new Map();   // site_id -> "X" or "Z"
@@ -1322,44 +1330,78 @@ def build_interactive_lattice_html(lattice) -> str:
       return true;
     }
 
-    function mCandidateCZEdges(xQubits, trianglePath, currentCZ) {
-      // Candidate CZs connect the *other two colours*; both endpoints must
-      // be tips of stars along the selected triangle path. They may be
-      // non-nearest neighbours (the same upward arcs used in the paper).
-      const tips = new Set();
-      for (const tId of trianglePath.slice(1, -1)) {
-        const sId = starForTriangle.get(tId);
-        const star = starById.get(sId);
-        if (star) star.x_qubits.forEach(id => tips.add(id));
+    function mPathConnectors(xs) {
+      if (!xs.length || new Set(xs).size !== xs.length) return null;
+
+      if (xs.some(q => siteById.get(q)?.colorName !== anyonColor)) {
+        return null;
       }
-      const sites = Array.from(tips).filter(id => {
-        const s = siteById.get(id);
-        if (s.colorName === anyonColor) return false;
-        return xQubits.some(x => {
-          const p = siteById.get(x);
-          const dx = p.x - s.x, dy = p.y - s.y;
-          return dx*dx + dy*dy <= 2.7*2.7;
-        });
-      });
-      const colours = ["Red", "Green", "Blue"].filter(c => c !== anyonColor);
-      const left = sites.filter(id => siteById.get(id).colorName === colours[0]);
-      const right = sites.filter(id => siteById.get(id).colorName === colours[1]);
-      const occupied = new Set([
-        ...currentCZ.map(pair => pairKey(...pair)),
-        ...czPairs.filter(pair => !mAutoCZ.some(m => pairKey(...m) === pairKey(...pair)))
-                 .map(pair => pairKey(...pair)),
-      ]);
-      const edges = [];
-      for (const a of left) {
-        for (const b of right) {
-          if (occupied.has(pairKey(a,b))) continue;
-          const sa = siteById.get(a), sb = siteById.get(b);
-          const dist = Math.hypot(sa.x - sb.x, sa.y - sb.y);
-          edges.push({pair:[a,b],dist});
+
+      const connectors = [];
+
+      for (let j = 0; j + 1 < xs.length; j++) {
+        const left = mNeighborIds.get(xs[j]);
+        const right = mNeighborIds.get(xs[j + 1]);
+
+        if (!left || !right) return null;
+
+        // The connector is directly bonded to BOTH consecutive Xs.
+        const shared = [...left].filter(q => right.has(q));
+
+        // Require one unambiguous physical connector.
+        if (shared.length !== 1) return null;
+
+        const q = shared[0];
+
+        if (siteById.get(q).colorName === anyonColor) return null;
+
+        connectors.push(q);
+      }
+
+      // Require consistent alternating connector colors:
+      // Green, Red, Green, Red, ... in your example.
+      if (connectors.length > 1) {
+        const firstColor = siteById.get(connectors[0]).colorName;
+        const secondColor = siteById.get(connectors[1]).colorName;
+
+        if (firstColor === secondColor) return null;
+
+        for (let j = 0; j < connectors.length; j++) {
+          const expectedColor =
+            j % 2 === 0 ? firstColor : secondColor;
+
+          if (siteById.get(connectors[j]).colorName !== expectedColor) {
+            return null;
+          }
         }
       }
-      edges.sort((a,b) => a.dist - b.dist || a.pair[0]-b.pair[0] || a.pair[1]-b.pair[1]);
-      return edges;
+
+      return connectors;
+    }
+
+    function mSupportCZPairs(xs) {
+      const connectors = mPathConnectors(xs);
+
+      if (connectors === null) return null;
+
+      const pairCount = Math.floor(connectors.length / 2);
+      const pairs = [];
+
+      // Zero-based indexing:
+      // A_i = connectors[2*i]
+      // B_i = connectors[2*i + 1]
+      //
+      // Add CZ(A_i, B_j) for i <= j.
+      for (let i = 0; i < pairCount; i++) {
+        for (let j = i; j < pairCount; j++) {
+          pairs.push([
+            connectors[2 * i],
+            connectors[2 * j + 1]
+          ]);
+        }
+      }
+
+      return pairs;
     }
 
     function mNewTrianglePath(newQubit) {
@@ -1382,105 +1424,35 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function findMDecoration(xs, ts) {
-      const previous = mAutoCZ.map(pair => [...pair]);
-      const expected = mAllowedStarIds(xs,ts);
-      const current = mStarResiduals(xs,previous);
-      if (validMResidues(current,expected)) return previous;
-      // Every even X-count extends by X alone. No CZ rearrangements.
-      if (xs.length % 2 === 0) return null;
+      // Construct the exact CZ list from the selected X path.
+      const cz = mSupportCZPairs(xs);
 
-      // A successful odd-number extension repairs *two* intermediate stars.
-      // The normal straight ribbon needs 1,2,3,... new CZs at odd steps
-      // n=3,5,7,...; turns may admit fewer. Search only valid solutions.
-      const budget = Math.floor((xs.length-1)/2);
-      const otherStars = starData.filter(st => !expected.has(st.id));
-      const shift = new Map(otherStars.map((s,i) => [s.id, BigInt(i * (maxQubitId + 1))]));
-      let target = 0n;
-      for (const s of otherStars) target ^= current.get(s.id) << shift.get(s.id);
-      if (target === 0n) return null;
+      if (cz === null) return null;
 
-      const candidates = mCandidateCZEdges(xs,ts,previous);
-      const columns = [];
-      const dict = new Map();
-      for (const candidate of candidates) {
-        const [a,b] = candidate.pair;
-        let column = 0n;
-        for (const sId of eStarIncidence.get(a) || []) {
-          const pos = shift.get(sId);
-          if (pos !== undefined) column ^= reducedZSingle.get(b) << pos;
-        }
-        for (const sId of eStarIncidence.get(b) || []) {
-          const pos = shift.get(sId);
-          if (pos !== undefined) column ^= reducedZSingle.get(a) << pos;
-        }
-        if (column === 0n) continue;
-        columns.push({...candidate, column});
-        if (!dict.has(column)) dict.set(column, []);
-        dict.get(column).push(columns.length - 1);
+      // Preserve the existing rule against reusing a CZ
+      // that belongs to another circuit.
+      const own = new Set(
+        mAutoCZ.map(pair => pairKey(...pair))
+      );
+
+      const occupied = new Set(
+        czPairs
+          .filter(pair => !own.has(pairKey(...pair)))
+          .map(pair => pairKey(...pair))
+      );
+
+      if (cz.some(pair => occupied.has(pairKey(...pair)))) {
+        return null;
       }
 
-      const verify = (indexes) => {
-        const add = indexes.map(i => columns[i].pair);
-        const cz = [...previous,...add];
-        return validMResidues(mStarResiduals(xs,cz),expected) ? cz : null;
-      };
+      // Validate the required construction using the existing
+      // star-residue check.
+      const expected = mAllowedStarIds(xs, ts);
 
-      if (budget >= 1) {
-        for (const i of dict.get(target) || []) {
-          const found = verify([i]);
-          if (found) return found;
-        }
-      }
-      if (budget >= 2) {
-        for (let i=0;i<columns.length;i++) {
-          for (const j of dict.get(target ^ columns[i].column) || []) {
-            if (i === j) continue;
-            const found = verify([i,j]);
-            if (found) return found;
-          }
-        }
-      }
-      if (budget === 3) {
-        for (let i=0;i<columns.length;i++) {
-          for (let j=i+1;j<columns.length;j++) {
-            const missing = target ^ columns[i].column ^ columns[j].column;
-            for (const k of dict.get(missing) || []) {
-              if (k===i || k===j) continue;
-              const found = verify([i,j,k]);
-              if (found) return found;
-            }
-          }
-        }
-      }
-      // A longer ribbon may need more than four new edges. Solve the same
-      // GF(2) equations without a gate-count constraint as a fallback.
-      if (budget >= 4) {
-        const basis = new Map();
-        function pivot(x) { return x.toString(2).length-1; }
-        for (let i=0;i<columns.length;i++) {
-          let v=columns[i].column, combo=1n<<BigInt(i);
-          while (v !== 0n) {
-            const p=pivot(v), row=basis.get(p);
-            if (row) {v ^=row.vec;combo ^=row.combo;}
-            else {basis.set(p,{vec:v,combo});break;}
-          }
-        }
-        let residue=target,combo=0n;
-        while(residue!==0n) {
-          const row=basis.get(pivot(residue));
-          if (!row) break;
-          residue ^=row.vec;combo ^=row.combo;
-        }
-        if (residue===0n) {
-          const chosen=[];
-          for(let i=0;i<columns.length;i++) {
-            if (combo & (1n<<BigInt(i))) chosen.push(i);
-          }
-          const found=verify(chosen);
-          if (found)return found;
-        }
-      }
-      return null;
+      return validMResidues(
+        mStarResiduals(xs, cz),
+        expected
+      ) ? cz : null;
     }
 
     function availableMPlans() {
