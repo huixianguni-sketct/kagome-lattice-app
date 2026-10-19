@@ -814,7 +814,7 @@ def build_interactive_lattice_html(lattice) -> str:
     );
     
     const mNeighborIds = new Map(
-      siteData,map(s => [s.id, new Set()])
+      siteData.map(s => [s.id, new Set()])
     );
     
     for (const [a, b] of edgePairs) {
