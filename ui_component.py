@@ -637,7 +637,7 @@ def build_interactive_lattice_html(lattice) -> str:
       <button class="btn mode-btn" data-mode="CZ">CZ</button>
       <button class="btn mode-btn" data-mode="ERASE">Erase</button>
 
-      <button class="btn action" id="pan-btn">Pan</button>
+      <button class="btn action" id="zoom-btn">Zoom</button>
       <button class="btn action" id="save-btn">Save PNG</button>
       <button class="btn action" id="undo-btn">Undo</button>
       <button class="btn action" id="clear-btn">Clear</button>
@@ -799,7 +799,7 @@ def build_interactive_lattice_html(lattice) -> str:
     const expectationButtons = Array.from(document.querySelectorAll(".expectation-btn"));
     const expectationContent = document.getElementById("expectation-content");
     const expectationPanel = document.getElementById("expectation-panel");
-    const panBtn = document.getElementById("pan-btn");
+    const zoomBtn = document.getElementById("zoom-btn");
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
     const clearBtn = document.getElementById("clear-btn");
@@ -819,7 +819,7 @@ def build_interactive_lattice_html(lattice) -> str:
     let czPairs = [];           // array of [a, b]
     let pendingCZ = null;       // first endpoint for CZ selection
     let history = [];           // array of { state, description }
-    let panMode = false;
+    let zoomMode = false;
 
     // Guided Anyon mode: electric (Z), magnetic (X + automatic CZ), or
     // three-color straight s1/s2 diagrams with XR/RX on the spine.
@@ -1849,7 +1849,7 @@ def build_interactive_lattice_html(lattice) -> str:
       sGuideId = (anyonKind === "s1" || anyonKind === "s2") ? nextSGuideId++ : null;
       mGuideId = anyonKind === "m" ? nextMGuideId++ : null;
       pendingCZ=null;
-      if (panMode) setPanMode(false);
+      if (zoomMode) setZoomMode(false);
       currentMode=anyonKind ? "ANYON":"Z";
       updateActiveModeButtons();
       updateAnyonSummary();
@@ -2559,24 +2559,24 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
 
-    function setPanMode(enabled) {
-      panMode = enabled;
+    function setZoomMode(enabled) {
+      zoomMode = enabled;
 
-      if (panMode) {
-        panBtn.classList.add("active");
-
-        Plotly.relayout(plotDiv, {
-          dragmode: "pan"
-        });
-
-        setStatus(
-          "Pan mode: click and drag the lattice to move around."
-        );
-      } else {
-        panBtn.classList.remove("active");
+      if (zoomMode) {
+        zoomBtn.classList.add("active");
 
         Plotly.relayout(plotDiv, {
           dragmode: "zoom"
+        });
+
+        setStatus(
+          "Zoom mode: click and drag the lattice over area to zoom into."
+        );
+      } else {
+        zoomBtn.classList.remove("active");
+
+        Plotly.relayout(plotDiv, {
+          dragmode: "pan"
         });
       }
     }
@@ -2881,6 +2881,9 @@ def build_interactive_lattice_html(lattice) -> str:
           // is called after X, Z, CZ, Erase, Undo, etc.
           uirevision: "keep-kagome-view",
 
+          // Set click-and-drag to pan by default
+          dragmode: "pan",
+
           paper_bgcolor: "white",
           plot_bgcolor: "white",
 
@@ -3158,8 +3161,8 @@ def build_interactive_lattice_html(lattice) -> str:
       btn.addEventListener("click", () => {
 
         // Return from navigation mode to operator mode.
-        if (panMode) {
-          setPanMode(false);
+        if (zoomMode) {
+          setZoomMode(false);
         }
 
         // Ordinary tools exit Anyon mode, without changing any Z, X, or
@@ -3248,7 +3251,7 @@ def build_interactive_lattice_html(lattice) -> str:
         if (expectationMode && inspectedObject && inspectedObject.kind!==expectationMode) {
           inspectedObject=null;
         }
-        if (panMode && expectationMode) setPanMode(false);
+        if (zoomMode && expectationMode) setZoomMode(false);
         updateExpectationButtons();
         render();
         setStatus(expectationMode
@@ -3259,7 +3262,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
     // Unlike Plotly point-click, this also catches empty polygon interiors.
     plotDiv.addEventListener("click", (evt) => {
-      if (!expectationMode || panMode) return;
+      if (!expectationMode || zoomMode) return;
       const drag=plotDiv.querySelector(".nsewdrag");
       const fl=plotDiv._fullLayout;
       if (!drag || !fl || !fl.xaxis || !fl.yaxis) return;
@@ -3272,8 +3275,8 @@ def build_interactive_lattice_html(lattice) -> str:
       selectExpectationPoint(x,y);
     });
 
-    panBtn.addEventListener("click", () => {
-      setPanMode(!panMode);
+    zoomBtn.addEventListener("click", () => {
+      setZoomMode(!zoomMode);
     });
     saveBtn.addEventListener("click", handleSave);
     undoBtn.addEventListener("click", handleUndo);
@@ -4490,7 +4493,7 @@ def build_interactive_lattice_html(lattice) -> str:
     render();
 
     plotDiv.on("plotly_click", (eventData) => {
-      if (panMode) {
+      if (zoomMode) {
         return;
       }
       if (!eventData || !eventData.points || eventData.points.length === 0) {
