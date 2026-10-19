@@ -1505,11 +1505,15 @@ def build_interactive_lattice_html(lattice) -> str:
     // along the SELECTED EDGE, not relative to the triangle's horizontal base.
     // A triangle whose third vertex lies LEFT of the directed path is UP;
     // RIGHT of the path is DOWN.  With s1, UP => XR on the first selected
-    // qubit, RX on the next; DOWN => RX first, XR next.  s2 reverses them.
+    // qubit, RX on the next for the OLD (reversed) labels.  In the user's
+    // ORIGINAL naming, s1 instead uses UP => RX first, XR next and
+    // DOWN => XR first, RX next; s2 is the complex-conjugate mirror.
     // Reversing travel reverses both orientation and endpoint order, so the
     // final assignment to each PHYSICAL qubit is unchanged.
-    // In particular: green -> red with the tip to the right => RX green,
-    // XR red; reverse red -> green => XR red, RX green.
+    // The label correction changes the former "s2" operator into the
+    // user-named "s1" (and vice versa) without changing ribbon topology.
+    // Reversing travel reverses endpoint order AND orientation, so physical
+    // XR/RX assignments remain unchanged on a reversed directed path.
     // The third triangle vertex receives X only.  All CZ gates remain a
     // jointly optimized three-colour decoration applied first.
     // ------------------------------------------------------------------
@@ -1597,8 +1601,14 @@ def build_interactive_lattice_html(lattice) -> str:
         // physical triangle's horizontal-base orientation instead.
         const orientedUp=sDirectedTriangleUp(base[i],base[i+1],tri.apex);
         if (orientedUp===null) return null;
-        const flip=(anyonKind==='s2');
-        const firstOrder=(orientedUp!==flip)?'XR':'RX';
+        // User's original String 1 convention: for a directed edge with
+        // triangle apex on its left (UP), the first qubit has RX and the
+        // second has XR. String 2 is its conjugate pattern on that SAME edge.
+        // DOWN swaps RX and XR. This is the sole generator used by both
+        // the main editor and the microscopic R workbench.
+        const string1First = orientedUp ? 'RX' : 'XR';
+        const firstOrder = anyonKind==='s1' ? string1First
+          : (string1First==='RX' ? 'XR' : 'RX');
         const nextOrder=firstOrder==='XR'?'RX':'XR';
         for (const [q,order] of [[base[i],firstOrder],[base[i+1],nextOrder]]) {
           if (gateOrder.has(q)&&gateOrder.get(q)!==order) return null;
