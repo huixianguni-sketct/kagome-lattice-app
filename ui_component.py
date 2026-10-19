@@ -3314,6 +3314,20 @@ def build_interactive_lattice_html(lattice) -> str:
     let rCheckpoint='projected';
     let rCompiling=false;
     let rM21SyndromeSuggestion=null;
+    // Fixed DESTINATION-local projectors are separate from the four editable
+    // SOURCE-interface projectors.  Both process orders use the same mapping.
+    let rEndpointFix={Y:null,M0:null};
+    // Fixed splitting-state preparation, calibrated ONLY for the present
+    // 12x12 / six-step q223-q232-q241-q133 geometry.  Never silently reuse
+    // these numerical star IDs in a lattice with a different numbering.
+    let rInitialSplittingStars=[];
+    let rExtraM21Star=null;
+    function rSplittingCalibration(geom){
+      const matches=starData.length===100 && geom &&
+        geom.q0===223 && geom.q1===232 && geom.q2===241 && geom.qY===133 &&
+        starById.has(53) && starById.has(48);
+      return matches?{split:[53,48],extraM21:53}:{split:[],extraM21:null};
+    }
 
     function rResize() {
       // Streamlit HTML components accept the standard component height message.
@@ -3537,6 +3551,20 @@ def build_interactive_lattice_html(lattice) -> str:
       const near=rPoint(move==='M21'?geom.q2:geom.q1),count=4; // Four local source-star projectors (parallel and slanted).
       return starData.slice().sort((a,b)=>Math.hypot(a.center[0]-near.x,a.center[1]-near.y)-Math.hypot(b.center[0]-near.x,b.center[1]-near.y)).slice(0,count).map(s=>s.id);
     }
+    // An outward destination-local star must have the new endpoint on its
+    // X-support, and its center must lie beyond that endpoint in the directed
+    // movement. This gives A50 (1->0) and A18 (1->Y) in the default 12x12
+    // junction, without hardcoding star IDs on other lattice sizes.
+    // Require uniqueness rather than guessing if the endpoint is near a boundary.
+    function rOutwardDestinationStar(move,geom) {
+      if(move!=='M0'&&move!=='Y')return null;
+      const src=rPoint(geom.q1),q=move==='M0'?geom.q0:geom.qY,dest=rPoint(q);
+      if(!src||!dest)return null;
+      const dx=dest.x-src.x,dy=dest.y-src.y;
+      const candidates=starData.filter(st=>st.x_qubits.includes(q)&&
+        (st.center[0]-dest.x)*dx+(st.center[1]-dest.y)*dy>1e-7);
+      return candidates.length===1?candidates[0].id:null;
+    }
     function rUserXForSixCellJunction(geom) {
       // Qubit IDs are lattice-specific.  These two experimentally identified
       // additional corrections apply ONLY to the matching 6 x 6 junction.
@@ -3587,6 +3615,10 @@ def build_interactive_lattice_html(lattice) -> str:
       rValidationContent.textContent='Choose one of the movement buttons to inspect its checkpoints.';
       const model=rFindGeometry(kind);
       rGeom=model?.geom||null;rSegments=model?.segments||null;
+      rEndpointFix=rGeom?{Y:rOutwardDestinationStar('Y',rGeom),M0:rOutwardDestinationStar('M0',rGeom)}:{Y:null,M0:null};
+      const splitCalibration=rSplittingCalibration(rGeom);
+      rInitialSplittingStars=splitCalibration.split;
+      rExtraM21Star=splitCalibration.extraM21;
       rAdjust={Y:{x:[],stars:[]},M21:{x:[],stars:[]},M0:{x:[],stars:[]}};
       rCompleted={A:0,B:0};rActiveProcess='A';rActiveStep=0;
       rStudio.hidden=!kind;setTimeout(rResize,120);
@@ -3615,7 +3647,12 @@ def build_interactive_lattice_html(lattice) -> str:
         : '6×6-specific extra X locations have not been established for this geometry; no q61/q68 overrides applied. ';
       const sourceNote=rM21SyndromeSuggestion?
         `<br><strong>2→1 triangle-only calibration:</strong> ${rEscape(rM21SyndromeSuggestion.reason)} ${rM21SyndromeSuggestion.ok?'Verified against both spectator contexts; this is not a fusion-state validation.':'No correction automatically inserted.'}`:'';
-      rOverview.innerHTML=`T-junction: exactly ${rGeom.armSteps} nearest-neighbor steps per arm; at least ${rGeom.minGeometricBuffer} complete stars between each possible pair of endpoints, plus at least one COMPLETE outward star between each endpoint and the physical open boundary (q0/q1/q2/qY: ${rGeom.boundaryStarIds.map(xs=>xs.map(id=>'A'+id).join(',')).join(' / ')}). Geometric clearance alone does not guarantee Bₜ=+1 or Aₛ=+1; all finished stages are audited below. Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}${sourceNote} Each parallel movement now projects four complete stars around its old endpoint. Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
+      const splitProjInfo=rInitialSplittingStars.length
+        ? `<strong>Splitting preparation:</strong> after the fresh S(1,2) ribbon, apply ${rInitialSplittingStars.map(id=>'P'+id).join(' then ')} (each successful branch normalized). `
+        : '<strong>Splitting preparation:</strong> the P53/P48 star IDs are calibrated only for the matching default 12×12 T-junction; none are inserted for this geometry. ';
+      const extraMoveInfo=rExtraM21Star===null?'':`<strong>2→1 additional local projection:</strong> fixed P${rExtraM21Star} after its four source-interface projectors, in both processes. `;
+      const endProjInfo=`${splitProjInfo}${extraMoveInfo}<strong>Fixed destination-local +1 projections:</strong> M(1→0): ${rEndpointFix.M0===null?'unavailable':'P'+rEndpointFix.M0}; M(1→Y): ${rEndpointFix.Y===null?'unavailable':'P'+rEndpointFix.Y}. These occur AFTER the four source-interface stars and are identical in both process orders. They define chosen endpoint representatives, not a proven anyon transport isometry. `;
+      rOverview.innerHTML=`${endProjInfo}T-junction: exactly ${rGeom.armSteps} nearest-neighbor steps per arm; at least ${rGeom.minGeometricBuffer} complete stars between each possible pair of endpoints, plus at least one COMPLETE outward star between each endpoint and the physical open boundary (q0/q1/q2/qY: ${rGeom.boundaryStarIds.map(xs=>xs.map(id=>'A'+id).join(',')).join(' / ')}). Geometric clearance alone does not guarantee Bₜ=+1 or Aₛ=+1; all finished stages are audited below. Fixed junction: 0=q${rGeom.q0}, 1=q${rGeom.q1}, 2=q${rGeom.q2}, Y=q${rGeom.qY}. Each fresh segment begins at the next qubit. <strong>M(2→1) always applies exactly one X at position 2 (q${rGeom.q2}), after the fresh ribbon and before the projectors.</strong> ${userInfo}${sourceNote} Each parallel movement now projects four complete stars around its old endpoint. Other suggested X corrections and the selected star projectors remain editable hypotheses, not independently certified.`;
       rCalc.innerHTML='<p>Complete both four-step processes to compare their final quantum states. The interface corrections must be validated first.</p>';
       rUpdateButtons();rRenderStep();setTimeout(rResize,350);
     }
@@ -3624,6 +3661,12 @@ def build_interactive_lattice_html(lattice) -> str:
       for(let j=0;j<step;j++){
         const move=rSequences[which][j],seg=rSegments[move];
         for(const ev of seg.events)events.push({...ev,step:j+1,move});
+        if(move==='S'){
+          // Chronological splitting preparation: S -> P53 -> P48 for the
+          // default calibrated 12x12 junction.  The same S is shared by both.
+          for(const starId of rInitialSplittingStars)
+            events.push({type:'P',starId,source:'splitting-local',step:j+1,move});
+        }
         if(move!=='S') {
           // User-specified microscopic rule for M(2→1): the interface is at
           // the OLD position 2. Exactly one X there, AFTER the fresh s string
@@ -3631,6 +3674,15 @@ def build_interactive_lattice_html(lattice) -> str:
           if(move==='M21')events.push({type:'X',qubits:[rGeom.q2],source:'interface-fixed',step:j+1,move});
           for(const q of rAdjust[move].x)events.push({type:'X',qubits:[q],source:'interface',step:j+1,move});
           for(const starId of rAdjust[move].stars)events.push({type:'P',starId,source:'interface',step:j+1,move});
+          // The separately requested P53 at M(2→1) follows the four source
+          // projectors; it does not replace P48 and it must not be duplicated.
+          if(move==='M21'&&rExtraM21Star!==null)
+            events.push({type:'P',starId:rExtraM21Star,source:'m21-local',step:j+1,move});
+          // Select the same local endpoint representative regardless of
+          // whether this movement happens first or last in the T-junction.
+          const targetStar=rEndpointFix[move];
+          if(targetStar!==null&&targetStar!==undefined)
+            events.push({type:'P',starId:targetStar,source:'endpoint-local',step:j+1,move});
         }
       }
       return events;
@@ -3715,7 +3767,10 @@ def build_interactive_lattice_html(lattice) -> str:
       for(const ev of events)if(ev.type==='P'){
         const st=starById.get(ev.starId);if(!st)continue;
         const path=polygonPath(st.inner_qubits);if(path)projectorShapes.push({type:'path',path,fillcolor:'rgba(14,165,233,.10)',line:{width:1.5,color:'#0284c7',dash:'dot'},layer:'below'});
-        projectorTrace.x.push(st.center[0]);projectorTrace.y.push(st.center[1]);projectorTrace.text.push('P'+st.id);projectorTrace.hovertext.push('Project (I+A_'+st.id+')/2');
+        projectorTrace.x.push(st.center[0]);projectorTrace.y.push(st.center[1]);
+        projectorTrace.text.push('P'+st.id+(['endpoint-local','splitting-local','m21-local'].includes(ev.source)?'*':''));
+        const meaning=ev.source==='endpoint-local'?'Fixed destination-local ':ev.source==='splitting-local'?'Fixed splitting-state ':ev.source==='m21-local'?'Fixed added M(2→1) ': 'Source-interface ';
+        projectorTrace.hovertext.push(meaning+'projector (I+A_'+st.id+')/2');
       }
       const allStarCenters={type:'scatter',mode:'markers',x:starData.map(s=>s.center[0]),y:starData.map(s=>s.center[1]),marker:{size:10,color:'#0284c7',opacity:.28,symbol:'diamond'},customdata:starData.map(s=>s.id),hovertemplate:'Star A%{customdata}<extra></extra>',name:'r-star-centers',showlegend:false};
       const shownEndpoints=rActiveStep===1?[rGeom.q1,rGeom.q2]:rMoveEndpoints(rActiveProcess,rActiveStep).after;
@@ -3762,9 +3817,12 @@ def build_interactive_lattice_html(lattice) -> str:
       }).catch(console.error);
       if(rActiveStep>1){
         const move=rSequences[rActiveProcess][rActiveStep-1];
-        rFixedXNote.textContent=move==='M21'
+        const targetStar=rEndpointFix[move];
+        const targetText=targetStar===null||targetStar===undefined?'':` Fixed destination-local P${targetStar} is applied AFTER the four editable source-interface projectors in both process orders. It is shown with * on the canvas and is not part of the editable source-star list.`;
+        const extraText=move==='M21'&&rExtraM21Star!==null?` Fixed P${rExtraM21Star} is applied once after the four editable interface stars.`:'';
+        rFixedXNote.textContent=(move==='M21'
           ? `Mandatory interface operation: X at position 2 = qubit ${rGeom.q2} (applied exactly once, after the fresh 2→1 segment). Do NOT enter this qubit again below.`
-          : 'There is no mandatory source X for this movement. Additional interface X corrections are editable below.';
+          : 'There is no mandatory source X for this movement. Additional interface X corrections are editable below.')+extraText+targetText;
         rEditX.value=rAdjust[move].x.join(', ');
         rEditStars.value=rAdjust[move].stars.join(', ');
         rSaveAdjust.disabled=false;
@@ -3791,7 +3849,7 @@ def build_interactive_lattice_html(lattice) -> str:
         }
       }catch(_err){}
       const diff=rActiveStep>1?
-        `${active==='M21'?`Fixed X at position 2: q${rGeom.q2}; `:''}Additional interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; star projectors: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}${violatedStage?`; ${violatedStage}`:''}`:(violatedStage||'');
+        `${active==='M21'?`Fixed X at position 2: q${rGeom.q2}; `:''}Additional interface X: ${rAdjust[active].x.length?rAdjust[active].x.join(', '):'none'}; source-interface stars: ${rAdjust[active].stars.map(id=>'A'+id).join(', ')||'none'}; ${active==='M21'&&rExtraM21Star!==null?'fixed extra P'+rExtraM21Star+'; ':''}${rEndpointFix[active]!=null?'fixed endpoint-local P'+rEndpointFix[active]+' (after source projections); ':''}${violatedStage?`; ${violatedStage}`:''}`:(`Splitting preparation: ${rInitialSplittingStars.length?rInitialSplittingStars.map(id=>'P'+id).join(' → '):'no fixed splitting projections on this geometry'}; ${violatedStage}`);
       document.getElementById('r-stage-caption').innerHTML=`<strong>${rEscape(label)}</strong><div>${rEscape(value)}</div><div>${rEscape(diff)}</div>`;
       if(rCompleted.A===4 && rCompleted.B===4)rComputeR();
       else rCalc.innerHTML=`<p><strong>Not evaluated yet.</strong> Complete both four-stage processes. For each move, examine the suggested interface X and projector star IDs and correct them as needed.</p><div class="r-math">R<sub>candidate</sub> = &lt;Ψ<sub>2</sub>|Ψ<sub>1</sub>&gt; / (‖Ψ<sub>1</sub>‖‖Ψ<sub>2</sub>‖)</div>`;
@@ -3892,7 +3950,7 @@ def build_interactive_lattice_html(lattice) -> str:
           if(first.dead||second.dead){
             section+='<p class="r-error">R is undefined: '+[first.dead?'process (1)':null,second.dead?'process (2)':null].filter(Boolean).join(' and ')+' has a zero-probability projection. A factor w cannot normalize the zero vector.</p>';
             section+=rWeightTable(first,'A')+rWeightTable(second,'B');
-            rLastSymbolicReport={status:'zero-postselection',engine:rExactCache.metadata(),kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,eventsA:A,eventsB:B,projectorsA:first.projectionLog,projectorsB:second.projectionLog};
+            rLastSymbolicReport={status:'zero-postselection',engine:rExactCache.metadata(),kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,splittingProjectors:rInitialSplittingStars,extraM21Projector:rExtraM21Star,destinationLocalProjectors:rEndpointFix,eventsA:A,eventsB:B,projectorsA:first.projectionLog,projectorsB:second.projectionLog};
             section+='<button class="btn" id="r-export-symbolic">Export calculation JSON</button>';
             rCalc.innerHTML=section;setTimeout(rResize,120);return;
           }
@@ -3905,6 +3963,13 @@ def build_interactive_lattice_html(lattice) -> str:
           const checked=[...new Set([...A,...B].filter(ev=>ev.type==='P').map(ev=>ev.starId))];
           const starA=checked.map(id=>({id,value:rExactCache.starExpectation(first,id)}));
           const starB=checked.map(id=>({id,value:rExactCache.starExpectation(second,id)}));
+          const chosenEndpointStars=[...new Set([rEndpointFix.M0,rEndpointFix.Y].filter(id=>id!==null&&id!==undefined))];
+          const endpointStarChecks=chosenEndpointStars.map(id=>({id,
+            process1:rExactCache.starExpectation(first,id),
+            process2:rExactCache.starExpectation(second,id)}));
+          const allSingleStarMismatch=starData.map(st=>({id:st.id,
+            process1:rExactCache.starExpectation(first,st.id),process2:rExactCache.starExpectation(second,st.id)}))
+            .filter(v=>!Number.isFinite(v.process1)||!Number.isFinite(v.process2)||Math.abs(v.process1-v.process2)>1e-8);
           const brokenA=starA.filter(s=>!Number.isFinite(s.value)||Math.abs(s.value-1)>1e-7).map(s=>s.id);
           const brokenB=starB.filter(s=>!Number.isFinite(s.value)||Math.abs(s.value-1)>1e-7).map(s=>s.id);
           // Extra local-star audit at the *vacated* source q2.  This catches
@@ -3922,10 +3987,16 @@ def build_interactive_lattice_html(lattice) -> str:
           const stageAudit=rAllStageBufferAudit(rExactCache);
           const allGapsOK=stageAudit.every(x=>x.separationOK&&x.boundaryOK&&x.postselectionAlive);
           const allEndpointsOK=stageAudit.every(x=>x.endpointsOK);
-          const passes=cA.ok&&cB.ok&&allGapsOK&&allEndpointsOK&&gapA.quantumOK&&gapB.quantumOK&&rSameIds(cA.fluxIds.slice().sort((a,b)=>a-b),cB.fluxIds.slice().sort((a,b)=>a-b))&&brokenA.length===0&&brokenB.length===0&&unrestoredA.length===0&&unrestoredB.length===0&&Math.abs(mag-1)<1e-9;
-          const status=passes?'Phase-only outputs in this finite-patch test — transport/species still need independent validation':'INCONCLUSIVE — do not identify the anyon from this overlap';
+          const phaseOnly=cA.ok&&cB.ok&&rSameIds(cA.fluxIds.slice().sort((a,b)=>a-b),cB.fluxIds.slice().sort((a,b)=>a-b))&&Math.abs(mag-1)<1e-9;
+          const passes=phaseOnly&&allGapsOK&&allEndpointsOK&&gapA.quantumOK&&gapB.quantumOK&&brokenA.length===0&&brokenB.length===0&&unrestoredA.length===0&&unrestoredB.length===0;
+          const phaseName=phaseOnly&&Math.abs(w.re)<1e-8&&Math.abs(Math.abs(w.im)-1)<1e-8?(w.im>0?'+i':'−i'):'unit-magnitude complex phase';
+          const status=phaseOnly
+            ?`Phase-only final states: ${phaseName} in this finite-patch calculation. ${passes?'Local audit passes;':'Some strict boundary/intermediate-stage checks remain unresolved;'} Fusion-sector identification and transport isometry are not yet independently certified.`
+            :'INCONCLUSIVE — final states are not related by a unit-magnitude phase';
           section+=`<div class="r-math">Normalized ⟨ψ₂|ψ₁⟩ = <strong>${rFormatComplex(w)}</strong><br>Exact form: ${rExactForm(exact)}<br>|overlap| = ${mag.toFixed(8)}${phase===null?'':`; arg / π = ${phase.toFixed(6)}`}<br>Final normalized norms: ${rNumber(n1)}, ${rNumber(n2)}</div>`;
           section+=`<p><strong>${status}</strong></p>`;
+          section+=`<p><strong>Chosen local endpoint sectors:</strong> ${endpointStarChecks.map(s=>'A'+s.id+': ⟨A⟩ in process (1) = '+rNumber(s.process1)+', process (2) = '+rNumber(s.process2)).join('; ')||'no unique outward destination-local star available on this geometry'}. The fixed destination projectors follow the four source-interface projectors.</p>`;
+          section+=`<p><strong>Single-star comparison:</strong> ${allSingleStarMismatch.length===0?'All '+starData.length+' complete-star expectations agree between the two final states.':'Different expectations at '+allSingleStarMismatch.length+' complete star(s): '+allSingleStarMismatch.map(x=>'A'+x.id).join(', ')+'.'} ${allSingleStarMismatch.length===0&&mag<1-1e-9?'Equal individual Aₛ expectations and identical triangle syndromes do not imply identical endpoint quantum states.':''}</p>`;
           section+=`<p><strong>Required one-star inter-endpoint buffer:</strong> process (1): ${gapA.quantumClean} clean out of ${gapA.geometricCount} complete corridor stars; process (2): ${gapB.quantumClean} clean out of ${gapB.geometricCount}. ${gapA.quantumOK&&gapB.quantumOK?'Both final endpoint gaps have at least one star with flux-free adjacent triangles and ⟨Aₛ⟩=+1.':'Insufficient clean-star separation in one or both final states. Correct the microscopic movement before interpreting a phase.'}</p>`;
           if(!passes&&mag<1-1e-9)section+='<p class="r-error">The output states are not proportional. Normalization is already included; it cannot turn a magnitude below one into a valid exchange phase.</p>';
           if(stageAudit.some(x=>!x.boundaryOK))section+='<p class="r-error">Boundary one-star physical-cleanliness test fails at one or more completed stages. This is independent of the purely geometric one-star clearance.</p>';
@@ -3938,7 +4009,7 @@ def build_interactive_lattice_html(lattice) -> str:
           section+='<p class="r-caveat">The positive w factors normalize these specific successful branches. This alone does not establish state-independent success probability or preservation of a multidimensional fusion space. This longer-arm geometry changes the generated ribbons; heuristic interface operations may require recalibration, and no R phase is accepted if the clean-star buffer fails.</p>';
           const elapsed=performance.now()-start;
           section+=`<p class="r-caveat">Calculation and selected-star checks: ${elapsed.toFixed(1)} ms on this browser.</p><button class="btn" id="r-export-symbolic">Export calculation JSON</button>`;
-          rLastSymbolicReport={status,kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,m21SyndromeCalibration:rM21SyndromeSuggestion,engine:rExactCache.metadata(),normalization:'positive normalization after every successful star projector',eventsA:A,eventsB:B,projectionGroupsA:rWeightGroups(first,'A'),projectionGroupsB:rWeightGroups(second,'B'),projectorsA:first.projectionLog,projectorsB:second.projectionLog,rawNormA:rawN1,rawNormB:rawN2,normalizedNormA:n1,normalizedNormB:n2,rawOverlap:z,overlap:w,exactOverlap:exact,exactRawOverlap:rawExact,magnitude:mag,phasePi:phase,selectedStarExpectationsA:starA,selectedStarExpectationsB:starB,vacatedSourceStarsA:vacatedA,vacatedSourceStarsB:vacatedB,bufferA:gapA,bufferB:gapB,allStageBufferAudit:stageAudit,boundaryClearanceAllStages:stageAudit.every(x=>x.boundaryOK),triangleIdsA:cA.fluxIds,triangleIdsB:cB.fluxIds,timeMs:elapsed};
+          rLastSymbolicReport={status,kind:rSelectedKind,geometry:rGeom,adjustments:rAdjust,splittingProjectors:rInitialSplittingStars,extraM21Projector:rExtraM21Star,destinationLocalProjectors:rEndpointFix,m21SyndromeCalibration:rM21SyndromeSuggestion,engine:rExactCache.metadata(),normalization:'positive normalization after every successful star projector',eventsA:A,eventsB:B,projectionGroupsA:rWeightGroups(first,'A'),projectionGroupsB:rWeightGroups(second,'B'),projectorsA:first.projectionLog,projectorsB:second.projectionLog,rawNormA:rawN1,rawNormB:rawN2,normalizedNormA:n1,normalizedNormB:n2,rawOverlap:z,overlap:w,exactOverlap:exact,exactRawOverlap:rawExact,magnitude:mag,phasePi:phase,selectedStarExpectationsA:starA,selectedStarExpectationsB:starB,endpointStarChecks,allSingleStarMismatch,vacatedSourceStarsA:vacatedA,vacatedSourceStarsB:vacatedB,bufferA:gapA,bufferB:gapB,allStageBufferAudit:stageAudit,boundaryClearanceAllStages:stageAudit.every(x=>x.boundaryOK),triangleIdsA:cA.fluxIds,triangleIdsB:cB.fluxIds,timeMs:elapsed};
           if(token!==rCalcToken)return;
           rCalc.innerHTML=section;setTimeout(rResize,120);
         }catch(e){rCalc.innerHTML=section+'<p class="r-error">Symbolic evaluation failed: '+rEscape(e.message)+'</p>';console.error(e);}
@@ -4068,7 +4139,15 @@ def build_interactive_lattice_html(lattice) -> str:
         try{if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);
           splitGap=rGapStarReport(ev,rGeom.q1,rGeom.q2,rExactCache,rExactCache.run(ev));}
         catch(e){splitGap=rGapStarReport(ev,rGeom.q1,rGeom.q2);}
-        rValidationContent.innerHTML=`<p>Initial splitting S(1,2): ${report.flux.length} excited triangles. Expected two RGB endpoints: ${rVFlag(report.ok,'geometrically consistent','not yet consistent')}.</p><p><strong>Buffer between 1 and 2:</strong> ${splitGap.geometricCount} complete stars, ${splitGap.geometricClean} flux-free, ${splitGap.quantumOK===null?'star expectation unavailable':splitGap.quantumClean+' fully restored'}. ${rVFlag(splitGap.quantumOK,'At least one clean star','Insufficient clean buffer star','Not fully checked')}.</p><p class="r-v-hint">Choose movement step 2, 3 or 4 to inspect the ribbon, X and projector checkpoints.</p>`;
+        let splitWeights='',splitExpectations='';
+        try{
+          if(!rExactCache)rExactCache=new RSymbolicEngine(siteData,starData,triangleData);
+          const prepared=rExactCache.run(ev);
+          const terms=prepared.projectionLog.filter(x=>x.step===1);
+          splitWeights=terms.length?terms.map(x=>`P${x.starId}: p=${rNumber(x.p)}, w=${rNumber(x.w)}`).join('; '):'none for this geometry';
+          splitExpectations=rInitialSplittingStars.length?rInitialSplittingStars.map(id=>`⟨A${id}⟩ = ${rNumber(rExactCache.starExpectation(prepared,id))}`).join('; '):'';
+        }catch(e){splitWeights='symbolic evaluation unavailable: '+rEscape(e.message);}
+        rValidationContent.innerHTML=`<p>Initial splitting S(1,2): ${report.flux.length} excited triangles. Expected two RGB endpoints: ${rVFlag(report.ok,'geometrically consistent','not yet consistent')}.</p><p><strong>Splitting-state projections (applied after S, in order):</strong> ${splitWeights}. ${splitExpectations}</p><p><strong>Buffer between 1 and 2:</strong> ${splitGap.geometricCount} complete stars, ${splitGap.geometricClean} flux-free, ${splitGap.quantumOK===null?'star expectation unavailable':splitGap.quantumClean+' fully restored'}. ${rVFlag(splitGap.quantumOK,'At least one clean star','Insufficient clean buffer star','Not fully checked')}.</p><p class="r-v-hint">Choose movement step 2, 3 or 4 to inspect the ribbon, X and projector checkpoints.</p>`;
         return;
       }
       rValidationContent.innerHTML='<p>Evaluating interface checkpoints…</p>';
@@ -4351,6 +4430,7 @@ def build_interactive_lattice_html(lattice) -> str:
         rAdjust[move].x=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
       } else if((name==='r-star-centers'||name==='geometric-buffer-stars') && Number.isInteger(Number(p.customdata))) {
         const id=Number(p.customdata),arr=rAdjust[move].stars;
+        if(id===rEndpointFix[move]||(move==='M21'&&id===rExtraM21Star))return; // fixed projector already supplied
         rAdjust[move].stars=arr.includes(id)?arr.filter(q=>q!==id):[...arr,id];
       } else return;
       rCalcToken++;rValidationToken++;rRenderStep();
@@ -4372,7 +4452,11 @@ def build_interactive_lattice_html(lattice) -> str:
         rCalc.innerHTML='<p class="r-error">Invalid qubit or complete-star ID.</p>';return;
       }
       if(qs.length>8||stars.length>8){rCalc.innerHTML='<p class="r-error">Interface has too many proposed corrections; review the geometry.</p>';return;}
-      if((move==='M21'||move==='M0')&&stars.length!==4){rCalc.innerHTML='<p class="r-error">Parallel movement requires exactly four interface-star projectors. Select four complete star IDs.</p>';return;}
+      if((move==='M21'||move==='M0')&&stars.length!==4){rCalc.innerHTML='<p class="r-error">Parallel movement requires exactly four editable SOURCE-interface stars. Any fixed destination-local projector is separate and applied afterward.</p>';return;}
+      if(stars.includes(rEndpointFix[move])){rCalc.innerHTML=`<p class="r-error">P${rEndpointFix[move]} is already included as the fixed destination-local projector for this movement; do not duplicate it in the source list.</p>`;return;}
+      if(move==='M21'&&rExtraM21Star!==null&&stars.includes(rExtraM21Star)){
+        rCalc.innerHTML=`<p class="r-error">P${rExtraM21Star} is already included as an additional fixed M(2→1) projector. Remove it from the four-star source list.</p>`;return;
+      }
       if(move==='M21'&&qs.includes(rGeom.q2)){
         rCalc.innerHTML=`<p class="r-error">Position 2 (qubit ${rGeom.q2}) already receives one mandatory interface X. Remove it from the additional X list to avoid X²=I.</p>`;
         return;
