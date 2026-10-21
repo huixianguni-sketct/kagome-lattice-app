@@ -566,7 +566,7 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
  
-    /* Kawagoe–Levin T-junction experiment (independent second canvas). */
+    /* Kawagoe-Levin T-junction experiment (independent second canvas). */
     .r-studio[hidden] { display: none !important; }
     .r-studio {margin:20px 0 28px; border-top:2px solid #e2e8f0; padding-top:15px;}
     .r-toolbar {display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0;}
@@ -620,6 +620,9 @@ def build_interactive_lattice_html(lattice) -> str:
         <option value="m_R">m_R</option>
         <option value="m_B">m_B</option>
         <option value="m_G">m_G</option>
+        <option value="m_BG">m_BG (Blue then Green)</option>
+        <option value="m_BR">m_BR (Blue then Red)</option>
+        <option value="m_RG">m_RG (Red then Green)</option>
         <option value="s1">s1 (straight: horizontal / diagonal)</option>
         <option value="s2">s2 (mirror: horizontal / diagonal)</option>
       </select>
@@ -831,10 +834,10 @@ def build_interactive_lattice_html(lattice) -> str:
 
     // Guided Anyon mode: electric (Z), magnetic (X + automatic CZ), or
     // three-color straight s1/s2 diagrams with XR/RX on the spine.
-    // The magnetic circuit is *recompiled* after every chosen X, with all its
-    // CZ gates chronologically before all its X gates. The mathematical
-    // operator is therefore (product X) (product CZ), as requested.
-    let anyonKind = null;      // "e", "m", "s1" or "s2"; null disables guide
+    // A single-colour m circuit is recompiled CZ first, then X.
+    // A two-colour m2 ribbon instead keeps TWO ordered factor blocks:
+    // first-colour CZ -> X, THEN second-colour CZ -> X.
+    let anyonKind = null;      // "e", "m", "m2", "s1" or "s2"; null disables guide
     let anyonColor = null;     // "Red", "Blue", "Green", or null
     let anyonQubits = [];      // selected Z or X physical qubits
     let anyonStarPath = [];    // oriented e-star path (after 2nd Z)
@@ -843,6 +846,14 @@ def build_interactive_lattice_html(lattice) -> str:
     let mOptionCache = null;  // computed options for the current m path
     let mGuideId = null;      // unique ID for the current m guide session
     let nextMGuideId = 1;
+    // Composite magnetic ribbons: one selected two-colour bond per step.
+    // Do not merge their two chronological CZ/X blocks.
+    let mPairColors = [];
+    let mPairEdges = [];
+    let mPairGuideId = null;
+    let nextMPairGuideId = 1;
+    let mPairBoard = null;
+    let mPairOptionCache = null;
     let sBasePath = [];       // clicked straight-line spine qubits, ordered
     let sGuidedX = [];        // all physical X qubits, including triangle tips
     let sAutoCZ = [];         // compiled three-colour magnetic decorations
@@ -1124,6 +1135,10 @@ def build_interactive_lattice_html(lattice) -> str:
         mAutoCZ: mAutoCZ.map(pair => [...pair]),
         mGuideId: mGuideId,
         nextMGuideId: nextMGuideId,
+        mPairColors: [...mPairColors],
+        mPairEdges: [...mPairEdges],
+        mPairGuideId: mPairGuideId,
+        nextMPairGuideId: nextMPairGuideId,
         sBasePath: [...sBasePath],
         sGuidedX: [...sGuidedX],
         sAutoCZ: sAutoCZ.map(pair => [...pair]),
@@ -1153,6 +1168,12 @@ def build_interactive_lattice_html(lattice) -> str:
       mAutoCZ = (state.mAutoCZ || []).map(pair => [...pair]);
       mGuideId = state.mGuideId ?? null;
       nextMGuideId = state.nextMGuideId ?? nextMGuideId;
+      mPairColors = [...(state.mPairColors || [])];
+      mPairEdges = [...(state.mPairEdges || [])];
+      mPairGuideId = state.mPairGuideId ?? null;
+      nextMPairGuideId = state.nextMPairGuideId ?? nextMPairGuideId;
+      mPairBoard = mPairColors.length === 2 ? buildMPairBoard(mPairColors) : null;
+      mPairOptionCache = null;
       sBasePath = [...(state.sBasePath || [])];
       sGuidedX = [...(state.sGuidedX || [])];
       sAutoCZ = (state.sAutoCZ || []).map(pair => [...pair]);
@@ -1162,7 +1183,9 @@ def build_interactive_lattice_html(lattice) -> str:
       mOptionCache = null;
       anyonSelect.value = anyonKind
         ? (anyonKind === "s1" || anyonKind === "s2"
-          ? anyonKind : `${anyonKind}_${anyonColor[0]}`)
+          ? anyonKind : (anyonKind === "m2"
+            ? `m_${mPairColors.map(c => c[0]).join("")}`
+            : `${anyonKind}_${anyonColor[0]}`))
         : "";
       operationLog = state.operationLog.map(event => ({
         id: event.id,
@@ -1191,12 +1214,13 @@ def build_interactive_lattice_html(lattice) -> str:
     // ---------------------------------------------------------------
     function anyonName() {
       if (!anyonKind) return "anyon";
+      if (anyonKind === "m2") return `m_${mPairColors.map(c => c[0]).join("")}`;
       if (anyonKind === "s1" || anyonKind === "s2") return anyonKind;
       return `${anyonKind}_${anyonColor[0]}`;
     }
 
     function currentAnyonGate() {
-      return anyonKind === "m" ? "X" : (anyonKind === "e" ? "Z" : "XR/RX");
+      return (anyonKind === "m" || anyonKind === "m2") ? "X" : (anyonKind === "e" ? "Z" : "XR/RX");
     }
 
     function sDirectionLabel() {
@@ -1213,7 +1237,14 @@ def build_interactive_lattice_html(lattice) -> str:
         anyonSummary.textContent = "";
         return;
       }
-      if (anyonKind === "s1" || anyonKind === "s2") {
+      if (anyonKind === "m2") {
+        const [first, second] = mPairColors;
+        anyonHint.textContent = `Click a gold diamond on a ${first.toLowerCase()}-${second.toLowerCase()} bond. Each step places both Xs on one shared ribbon.`;
+        const n = mPairEdges.length;
+        const countCZ = operationLog.filter(ev => ev.source === "guided-m2" &&
+          ev.guideId === mPairGuideId && ev.type === "CZ").length;
+        anyonSummary.textContent = `${n} X per colour · ${countCZ} CZ · ${first}: CZ → X; then ${second}: CZ → X`;
+      } else if (anyonKind === "s1" || anyonKind === "s2") {
         anyonHint.textContent = "Select a start, then choose a horizontal or diagonal direction. Existing X/XR/RX strings may overlap; previous gates are retained. Tips and CZs are automatic.";
         anyonSummary.textContent = sBasePath.length < 2
           ? (sBasePath.length ? "Select direction from the highlighted neighbors" : "Up/down triangles: mirrored XR ↔ RX")
@@ -1262,11 +1293,11 @@ def build_interactive_lattice_html(lattice) -> str:
       }).map(s => s.id);
     }
 
-    function completeMTriangleEnds(siteId) {
+    function completeMTriangleEnds(siteId, color = anyonColor) {
       const site = siteById.get(siteId);
-      if (!site || site.colorName !== anyonColor) return [];
+      if (!site || site.colorName !== color) return [];
       return (mTriangleIncidence.get(siteId) || []).filter(
-        tId => triangleById.get(tId).color === anyonColor
+        tId => triangleById.get(tId).color === color
       );
     }
 
@@ -1330,10 +1361,10 @@ def build_interactive_lattice_html(lattice) -> str:
       return true;
     }
 
-    function mPathConnectors(xs) {
+    function mPathConnectors(xs, color = anyonColor) {
       if (!xs.length || new Set(xs).size !== xs.length) return null;
 
-      if (xs.some(q => siteById.get(q)?.colorName !== anyonColor)) {
+      if (xs.some(q => siteById.get(q)?.colorName !== color)) {
         return null;
       }
 
@@ -1353,7 +1384,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
         const q = shared[0];
 
-        if (siteById.get(q).colorName === anyonColor) return null;
+        if (siteById.get(q).colorName === color) return null;
 
         connectors.push(q);
       }
@@ -1379,8 +1410,8 @@ def build_interactive_lattice_html(lattice) -> str:
       return connectors;
     }
 
-    function mSupportCZPairs(xs) {
-      const connectors = mPathConnectors(xs);
+    function mSupportCZPairs(xs, color = anyonColor) {
+      const connectors = mPathConnectors(xs, color);
 
       if (connectors === null) return null;
 
@@ -1404,23 +1435,23 @@ def build_interactive_lattice_html(lattice) -> str:
       return pairs;
     }
 
-    function mNewTrianglePath(newQubit) {
-      const ends = completeMTriangleEnds(newQubit);
-      if (ends.length !== 2 || anyonQubits.includes(newQubit)) return null;
-      if (!anyonQubits.length) return [...ends];
-      if (anyonQubits.length === 1) {
-        const firstEnds = completeMTriangleEnds(anyonQubits[0]);
+    function mNewTrianglePath(newQubit, qs = anyonQubits, path = mTrianglePath, color = anyonColor) {
+      const ends = completeMTriangleEnds(newQubit, color);
+      if (ends.length !== 2 || qs.includes(newQubit)) return null;
+      if (!qs.length) return [...ends];
+      if (qs.length === 1) {
+        const firstEnds = completeMTriangleEnds(qs[0], color);
         const shared = ends.filter(id => firstEnds.includes(id));
         if (shared.length !== 1) return null;
         const stationary = firstEnds.find(id => id !== shared[0]);
         const moving = ends.find(id => id !== shared[0]);
         return [stationary,shared[0],moving];
       }
-      const last = mTrianglePath[mTrianglePath.length-1];
+      const last = path[path.length-1];
       if (!ends.includes(last)) return null;
       const moving = ends.find(id => id !== last);
-      if (mTrianglePath.includes(moving)) return null;
-      return [...mTrianglePath,moving];
+      if (path.includes(moving)) return null;
+      return [...path,moving];
     }
 
     function findMDecoration(xs, ts) {
@@ -1468,6 +1499,187 @@ def build_interactive_lattice_html(lattice) -> str:
       }
       mOptionCache=options;
       return options;
+    }
+
+
+    // ===================================================================
+    // Two-colour m ribbons. A "rung" is a physical bond joining the selected
+    // two colours. Consecutive rungs either cross one remaining-colour
+    // hexagon, or the two triangles sharing one remaining-colour site.
+    // The former has precisely the user's 111100 / 110110 X support.
+    // ===================================================================
+    function mPairHexPattern(ring, ids, colors) {
+      const chosen = new Set(ids);
+      if (ring.length !== 6 || chosen.size !== 4 ||
+          [...chosen].some(q => !ring.includes(q))) return null;
+      if (colors.some(c => [...chosen].filter(q =>
+          siteById.get(q)?.colorName === c).length !== 2)) return null;
+      const bits = ring.map(q => chosen.has(q) ? "1" : "0").join("");
+      for (let shift = 0; shift < 6; shift++) {
+        const rotated = bits.slice(shift) + bits.slice(0, shift);
+        if (rotated === "111100") return "four-consecutive";
+        if (rotated === "110110") return "opposite-pairs";
+      }
+      return null;
+    }
+
+    function buildMPairBoard(colors) {
+      const rungs = new Map(), adjacency = new Map();
+      const third = ["Red", "Green", "Blue"].find(c => !colors.includes(c));
+      if (colors.length !== 2 || colors[0] === colors[1] || !third) {
+        return {rungs, adjacency};
+      }
+      const hexByEdge = new Map();
+      for (const star of starData) {
+        if (star.color !== third) continue;
+        const ring = star.inner_qubits;
+        for (let i = 0; i < 6; i++)
+          hexByEdge.set(pairKey(ring[i], ring[(i+1)%6]), star.id);
+      }
+      const byHex = new Map(), byApex = new Map();
+      const group = (map, id, key) => {
+        if (!map.has(id)) map.set(id, []);
+        map.get(id).push(key);
+      };
+      for (const edge of edgePairs) {
+        const qs = colors.map(c => edge.find(q => siteById.get(q).colorName === c));
+        if (qs.some(q => q === undefined)) continue;
+        if (qs.some((q, i) => completeMTriangleEnds(q, colors[i]).length !== 2)) continue;
+        const key = pairKey(...qs), hex = hexByEdge.get(key);
+        if (hex === undefined) continue; // existing complete-open-star rule
+        const common = [...mNeighborIds.get(qs[0])].filter(q =>
+          mNeighborIds.get(qs[1]).has(q) && siteById.get(q).colorName === third);
+        if (common.length !== 1) continue;
+        const a = siteById.get(qs[0]), b = siteById.get(qs[1]);
+        const rung = {key, qs, hex, apex: common[0], x: (a.x+b.x)/2, y: (a.y+b.y)/2};
+        rungs.set(key, rung); adjacency.set(key, new Map());
+        group(byHex, hex, key); group(byApex, rung.apex, key);
+      }
+      function connect(groups, kind) {
+        for (const [id, keys] of groups) {
+          for (let i = 0; i < keys.length; i++) for (let j = i+1; j < keys.length; j++) {
+            const a = rungs.get(keys[i]), b = rungs.get(keys[j]);
+            const ids = [...a.qs, ...b.qs];
+            if (new Set(ids).size !== 4) continue;
+            const pattern = kind === "hex"
+              ? mPairHexPattern(starById.get(id).inner_qubits, ids, colors)
+              : "shared-apex";
+            if (!pattern) continue;
+            const step = {kind, id, junction: `${kind}:${id}`, pattern};
+            adjacency.get(a.key).set(b.key, step);
+            adjacency.get(b.key).set(a.key, step);
+          }
+        }
+      }
+      connect(byHex, "hex"); connect(byApex, "apex");
+      return {rungs, adjacency};
+    }
+
+    function compileMPairRibbon(keys, colors = mPairColors, board = mPairBoard) {
+      if (!board || colors.length !== 2 || !keys.length || new Set(keys).size !== keys.length) return null;
+      const rungs = keys.map(key => board.rungs.get(key));
+      if (rungs.some(r => !r)) return null;
+      const allQubits = rungs.flatMap(r => r.qs);
+      if (new Set(allQubits).size !== allQubits.length) return null;
+      const junctions = new Set(), steps = [];
+      for (let i = 1; i < rungs.length; i++) {
+        const step = board.adjacency.get(keys[i-1]).get(keys[i]);
+        // No revisiting a face/apex: otherwise a hexagon could acquire six Xs.
+        if (!step || junctions.has(step.junction)) return null;
+        junctions.add(step.junction); steps.push(step);
+      }
+      const factors = [];
+      for (let side = 0; side < 2; side++) {
+        const color = colors[side], xs = rungs.map(r => r.qs[side]);
+        let triangles = [];
+        const prefix = [];
+        for (const q of xs) {
+          const next = mNewTrianglePath(q, prefix, triangles, color);
+          if (!next) return null;
+          triangles = next; prefix.push(q);
+        }
+        const cz = mSupportCZPairs(xs, color);
+        if (cz === null || !validMResidues(mStarResiduals(xs, cz),
+            mAllowedStarIds(xs, triangles))) return null;
+        factors.push({color, xs, triangles, cz});
+      }
+      
+      // This is chronological order, not a commuting/canonicalized gate set.
+      // Complete second factor, THEN complete first factor. For two colours c1 c2, U_c1c2 = X_c1 CZ_c1 X_c2 CZ_c2
+      const events = [];
+      for (const factor of [...factors].reverse()) {
+        for (const pair of factor.cz)
+          events.push({type: "CZ", qubits: [...pair], factorColor: factor.color});
+        for (const q of factor.xs)
+          events.push({type: "X", qubits: [q], factorColor: factor.color});
+      }
+      return {keys: [...keys], factors, events, steps, allQubits};
+    }
+
+    function availableMPairPlans() {
+      if (mPairOptionCache !== null) return mPairOptionCache;
+      const options = new Map();
+      if (!mPairBoard) return options;
+      const candidateKeys = mPairEdges.length
+        ? [...mPairBoard.adjacency.get(mPairEdges.at(-1)).keys()]
+        : [...mPairBoard.rungs.keys()];
+      for (const key of candidateKeys) {
+        const rung = mPairBoard.rungs.get(key);
+        if (rung.qs.some(q => localOps.has(q) || anyonQubits.includes(q))) continue;
+        const plan = compileMPairRibbon([...mPairEdges, key]);
+        if (plan) options.set(key, plan);
+      }
+      mPairOptionCache = options;
+      return options;
+    }
+
+    function handleMPairBond(key) {
+      const plan = availableMPairPlans().get(key);
+      if (!plan) {setStatus(`${anyonName()}: choose a highlighted bond midpoint.`); return false;}
+      pushHistory(`extending ${anyonName()} to paired bond ${key}`);
+      const affected = new Set([...anyonQubits, ...plan.allQubits]);
+      // Replace only THIS composite session. Keep other strings' exact gates,
+      // including repeated CZs and their original chronological positions.
+      operationLog = operationLog.filter(ev => !(ev.source === "guided-m2" && ev.guideId === mPairGuideId));
+      for (const ev of plan.events)
+        recordOperation(ev.type, ev.qubits, "guided-m2", mPairGuideId);
+      czPairs = operationLog.filter(ev => ev.type === "CZ").map(ev => [...ev.qubits]);
+      for (const q of affected) syncVisibleLocalOp(q);
+      mPairEdges = [...plan.keys];
+      anyonQubits = [...plan.allQubits];
+      mPairOptionCache = null;
+      render();
+      const n = mPairEdges.length, next = availableMPairPlans().size;
+      const order = plan.factors.map(f => `${f.color}: ${f.cz.length} CZ → ${f.xs.length} X`).join("; then ");
+      setStatus(`${anyonName()}: ${n} paired steps. ${order}. ${next} next bond(s). ` +
+        (n % 2 === 0 ? "Even prefix: each factor keeps its preceding odd-prefix CZ decoration." :
+          "Odd-length factors complete. Use the violation tools to inspect the ordered product."));
+      return true;
+    }
+
+    function buildMPairGuideTraces() {
+      if (anyonKind !== "m2" || !mPairBoard) return [];
+      const candidates = [...availableMPairPlans().keys()].map(key => mPairBoard.rungs.get(key));
+      const chosen = mPairEdges.map(key => mPairBoard.rungs.get(key));
+      function bonds(rungs, name, color, width) {
+        const x = [], y = [];
+        for (const rung of rungs) {
+          for (const q of rung.qs) {const p = siteById.get(q); x.push(p.x); y.push(p.y);}
+          x.push(null); y.push(null);
+        }
+        return {name, type: "scatter", mode: "lines", x, y,
+          line: {color, width}, hoverinfo: "skip", showlegend: false};
+      }
+      return [
+        bonds(chosen, "m2-chosen-bonds", "rgba(13,148,136,0.55)", 3),
+        bonds(candidates, "m2-candidate-bonds", "rgba(217,119,6,0.65)", 3),
+        {name: "m2-options", type: "scatter", mode: "markers",
+          x: candidates.map(r => r.x), y: candidates.map(r => r.y),
+          customdata: candidates.map(r => r.key),
+          text: candidates.map(r => `${mPairColors[0]} q${r.qs[0]} + ${mPairColors[1]} q${r.qs[1]}`),
+          marker: {symbol: "diamond", size: 11, color: "#fbbf24", line: {color: "#92400e", width: 1}},
+          hovertemplate: "<b>%{text}</b><br>Click to place both Xs<extra></extra>", showlegend: false}
+      ];
     }
 
     // ------------------------------------------------------------------
@@ -1795,6 +2007,8 @@ def build_interactive_lattice_html(lattice) -> str:
 
     function availableAnyonQubits() {
       if (!anyonKind) return [];
+      if (anyonKind === "m2") return [...new Set([...availableMPairPlans().keys()]
+        .flatMap(key => mPairBoard.rungs.get(key).qs))];
       if (anyonKind === "s1" || anyonKind === "s2") return availableSAnyonQubits();
       if (!anyonColor) return [];
       return anyonKind === "m"
@@ -1807,14 +2021,22 @@ def build_interactive_lattice_html(lattice) -> str:
       anyonStarPath=[];mTrianglePath=[];mAutoCZ=[];
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sGuideId=null;sCandidateCache=null;
       mOptionCache=null;mGuideId=null;
+      mPairColors=[];mPairEdges=[];mPairGuideId=null;mPairBoard=null;mPairOptionCache=null;
       anyonSelect.value="";
       updateAnyonSummary();
     }
 
     function setAnyon(value) {
       const match = /^(e|m)_([RGB])$/.exec(value);
-      anyonKind = (value === "s1" || value === "s2") ? value : (match ? match[1] : null);
-      anyonColor=match ? ({R:"Red",G:"Green",B:"Blue"}[match[2]]):null;
+      const pairMatch = /^m_([RGB])([RGB])$/.exec(value);
+      const validPair = pairMatch && pairMatch[1] !== pairMatch[2];
+      const names = {R:"Red",G:"Green",B:"Blue"};
+      anyonKind = validPair ? "m2" : ((value === "s1" || value === "s2") ? value : (match ? match[1] : null));
+      anyonColor=match ? names[match[2]]:null;
+      mPairColors=validPair ? [names[pairMatch[1]],names[pairMatch[2]]] : [];
+      mPairEdges=[];mPairOptionCache=null;
+      mPairGuideId=validPair ? nextMPairGuideId++ : null;
+      mPairBoard=validPair ? buildMPairBoard(mPairColors) : null;
       anyonQubits=[];anyonStarPath=[];
       mTrianglePath=[];mAutoCZ=[];mOptionCache=null;
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sCandidateCache=null;
@@ -1827,7 +2049,10 @@ def build_interactive_lattice_html(lattice) -> str:
       updateAnyonSummary();
       render();
       const options=availableAnyonQubits();
-      if (anyonKind==="s1" || anyonKind==="s2") {
+      if (anyonKind==="m2") {
+        setStatus(options.length ? `${anyonName()}: click a gold diamond between paired qubits. Choose the shared ribbon, not two independent paths.`
+          : `${anyonName()}: no complete interior paired bonds are available. Increase the lattice size or clear conflicting X/Z operations.`);
+      } else if (anyonKind==="s1" || anyonKind==="s2") {
         setStatus(options.length ? `${anyonName()}: select a highlighted start, including qubits on earlier X/XR/RX strings. Extend horizontally or diagonally; overlapping gates accumulate. XR/RX, tip X, and joint CZ dressing are automatic.`
           : `${anyonName()}: no interior straight Kagome line is available.`);
       } else if (anyonKind==="m") {
@@ -1892,6 +2117,12 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function handleAnyonQubit(siteId) {
+      if (anyonKind === "m2") {
+        const choices = [...availableMPairPlans().keys()].filter(key => mPairBoard.rungs.get(key).qs.includes(siteId));
+        if (choices.length === 1) handleMPairBond(choices[0]);
+        else setStatus(`${anyonName()}: click a gold bond-midpoint diamond to choose both qubits unambiguously.`);
+        return;
+      }
       const options=new Set(availableAnyonQubits());
       if (!options.has(siteId)) {
         setStatus(`${anyonName()}: qubit ${siteId} is not a valid next step. Choose a highlighted qubit.`);
@@ -2848,13 +3079,15 @@ def build_interactive_lattice_html(lattice) -> str:
         });
       }
 
+      traces.push(...buildMPairGuideTraces());
+
       const layout = {
           // Keep the user's current zoom/pan whenever Plotly.react()
           // is called after X, Z, CZ, Erase, Undo, etc.
           uirevision: "keep-kagome-view",
 
           // Set click-and-drag to pan by default
-          dragmode: "pan",
+          dragmode: zoomMode ? "zoom" : "pan",
 
           paper_bgcolor: "white",
           plot_bgcolor: "white",
@@ -3076,6 +3309,8 @@ def build_interactive_lattice_html(lattice) -> str:
       mAutoCZ = [];
       mOptionCache = null;
       mGuideId = anyonKind === "m" ? nextMGuideId++ : null;
+      mPairEdges=[];mPairOptionCache=null;
+      mPairGuideId = anyonKind === "m2" ? nextMPairGuideId++ : null;
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sCandidateCache=null;
       sGuideId = (anyonKind === "s1" || anyonKind === "s2") ? nextSGuideId++ : null;
 
@@ -4488,6 +4723,10 @@ def build_interactive_lattice_html(lattice) -> str:
       const traceName = (point.data && point.data.name)
         || (point.fullData && point.fullData.name)
         || "";
+      if (traceName === "m2-options") {
+        if (anyonKind === "m2") handleMPairBond(String(point.customdata));
+        return;
+      }
       const clickableTraceNames = new Set([
         "qubit-nodes", "operator-labels", "pending-cz",
         "anyon-path", "anyon-next",
