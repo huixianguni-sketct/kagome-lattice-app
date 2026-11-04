@@ -1587,28 +1587,43 @@ def build_interactive_lattice_html(lattice) -> str:
         }
       }
       const start=siteById.get(xs[0]),end=siteById.get(xs.at(-1));
-      const near=[new Set(),new Set()];
-      for(const id of cells){
-        const st=starById.get(id);if(!st)return false;
-        const d0=Math.hypot(st.center[0]-start.x,st.center[1]-start.y);
-        const d1=Math.hypot(st.center[0]-end.x,st.center[1]-end.y);
-        near[d0<=d1?0:1].add(id);
-      }
-      const canFit=(indices,anchor)=>{
-        if(!indices.size || indices.size>3)return false;
-        return fCellTriangles.patches.some(patch=>{
-          if([...indices].some(id=>!patch.has(id)))return false;
-          // Prevent interpreting a distant bulk defect as an endpoint.
-          const centres=[...patch].map(id=>starById.get(id).center);
-          const cx=centres.reduce((s,p)=>s+p[0],0)/3;
-          const cy=centres.reduce((s,p)=>s+p[1],0)/3;
-          return Math.hypot(cx-anchor.x,cy-anchor.y)<=2.25*fCellTriangles.spacing+1e-6;
-        });
+      const patchNearAnchor=(patch,anchor)=>{
+        const centres=[...patch].map(id=>starById.get(id).center);
+        const cx=centres.reduce((s,p)=>s+p[0],0)/3;
+        const cy=centres.reduce((s,p)=>s+p[1],0)/3;
+        return Math.hypot(cx-anchor.x,cy-anchor.y)<=
+          2.25*fCellTriangles.spacing+1e-6;
       };
-      // A narrow short prefix may have overlapping end patches. By length 3,
-      // each end must possess its own equilateral three-cell neighbourhood.
-      return canFit(near[0],start) && canFit(near[1],end) &&
-        [...near[0]].some(id=>charges.has(id)) && [...near[1]].some(id=>charges.has(id));
+
+      const startPatches=fCellTriangles.patches.filter(
+        p=>patchNearAnchor(p,start)
+      );
+      const endPatches=fCellTriangles.patches.filter(
+        p=>patchNearAnchor(p,end)
+      );
+
+      // Allow any valid equilateral patch at each endpoint.
+      // Do not assign violations based on nearest distance.
+      for(const p0 of startPatches){
+        if(![...charges].some(id=>p0.has(id))) continue;
+
+        for(const p1 of endPatches){
+          if(![...charges].some(id=>p1.has(id))) continue;
+
+          let covered=true;
+
+          for(const id of cells){
+            if(!p0.has(id) && !p1.has(id)){
+              covered=false;
+              break;
+            }
+          }
+
+          if(covered) return true;
+        }
+      }
+
+      return false;
     }
 
     function fBuildZPlan(xs, magneticEvents) {
