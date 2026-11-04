@@ -623,6 +623,12 @@ def build_interactive_lattice_html(lattice) -> str:
         <option value="m_BG">m_BG (Blue then Green)</option>
         <option value="m_BR">m_BR (Blue then Red)</option>
         <option value="m_RG">m_RG (Red then Green)</option>
+        <option value="f_R">f_R (m_R with red Z string)</option>
+        <option value="f_B">f_B (m_B with blue Z string)</option>
+        <option value="f_G">f_G (m_G with green Z string)</option>
+        <option value="f_BG">f_BG (m_BG with blue Z string)</option>
+        <option value="f_BR">f_BR (m_BR with blue Z string)</option>
+        <option value="f_RG">f_RG (m_RG with red Z string)</option>
         <option value="s1">s1 (straight: horizontal / diagonal)</option>
         <option value="s2">s2 (mirror: horizontal / diagonal)</option>
       </select>
@@ -854,6 +860,9 @@ def build_interactive_lattice_html(lattice) -> str:
     let nextMPairGuideId = 1;
     let mPairBoard = null;
     let mPairOptionCache = null;
+    // f = corresponding complete m ribbon, followed chronologically by Z on
+    // its selected (first) colour. The f-specific dressing does not change m.
+    let fZQubits = [];
     let sBasePath = [];       // clicked straight-line spine qubits, ordered
     let sGuidedX = [];        // all physical X qubits, including triangle tips
     let sAutoCZ = [];         // compiled three-colour magnetic decorations
@@ -1139,6 +1148,7 @@ def build_interactive_lattice_html(lattice) -> str:
         mPairEdges: [...mPairEdges],
         mPairGuideId: mPairGuideId,
         nextMPairGuideId: nextMPairGuideId,
+        fZQubits: [...fZQubits],
         sBasePath: [...sBasePath],
         sGuidedX: [...sGuidedX],
         sAutoCZ: sAutoCZ.map(pair => [...pair]),
@@ -1174,6 +1184,7 @@ def build_interactive_lattice_html(lattice) -> str:
       nextMPairGuideId = state.nextMPairGuideId ?? nextMPairGuideId;
       mPairBoard = mPairColors.length === 2 ? buildMPairBoard(mPairColors) : null;
       mPairOptionCache = null;
+      fZQubits = [...(state.fZQubits || [])];
       sBasePath = [...(state.sBasePath || [])];
       sGuidedX = [...(state.sGuidedX || [])];
       sAutoCZ = (state.sAutoCZ || []).map(pair => [...pair]);
@@ -1183,8 +1194,8 @@ def build_interactive_lattice_html(lattice) -> str:
       mOptionCache = null;
       anyonSelect.value = anyonKind
         ? (anyonKind === "s1" || anyonKind === "s2"
-          ? anyonKind : (anyonKind === "m2"
-            ? `m_${mPairColors.map(c => c[0]).join("")}`
+          ? anyonKind : ((anyonKind === "m2" || anyonKind === "f2")
+            ? `${anyonKind === "f2" ? "f" : "m"}_${mPairColors.map(c => c[0]).join("")}`
             : `${anyonKind}_${anyonColor[0]}`))
         : "";
       operationLog = state.operationLog.map(event => ({
@@ -1212,15 +1223,22 @@ def build_interactive_lattice_html(lattice) -> str:
     // ---------------------------------------------------------------
     // Electric and magnetic string guidance, with open boundaries.
     // ---------------------------------------------------------------
+    function isSingleMagneticGuide() { return anyonKind === "m" || anyonKind === "f"; }
+    function isPairMagneticGuide() { return anyonKind === "m2" || anyonKind === "f2"; }
+    function isFGuide() { return anyonKind === "f" || anyonKind === "f2"; }
+
     function anyonName() {
       if (!anyonKind) return "anyon";
-      if (anyonKind === "m2") return `m_${mPairColors.map(c => c[0]).join("")}`;
+      if (isPairMagneticGuide())
+        return `${anyonKind === "f2" ? "f" : "m"}_${mPairColors.map(c => c[0]).join("")}`;
       if (anyonKind === "s1" || anyonKind === "s2") return anyonKind;
       return `${anyonKind}_${anyonColor[0]}`;
     }
 
     function currentAnyonGate() {
-      return (anyonKind === "m" || anyonKind === "m2") ? "X" : (anyonKind === "e" ? "Z" : "XR/RX");
+      return isFGuide() ? "X + final Z" :
+        (isSingleMagneticGuide() || isPairMagneticGuide()) ? "X" :
+        (anyonKind === "e" ? "Z" : "XR/RX");
     }
 
     function sDirectionLabel() {
@@ -1237,13 +1255,18 @@ def build_interactive_lattice_html(lattice) -> str:
         anyonSummary.textContent = "";
         return;
       }
-      if (anyonKind === "m2") {
+      if (isPairMagneticGuide()) {
         const [first, second] = mPairColors;
-        anyonHint.textContent = `Click a gold diamond on a ${first.toLowerCase()}-${second.toLowerCase()} bond. Each step places both Xs on one shared ribbon.`;
+        anyonHint.textContent = `Click a gold diamond on a ${first.toLowerCase()}-${second.toLowerCase()} bond. Each step places both Xs on one shared ribbon.${isFGuide() ? " The first-colour Z string is appended automatically." : ""}`;
         const n = mPairEdges.length;
         const countCZ = operationLog.filter(ev => ev.source === "guided-m2" &&
           ev.guideId === mPairGuideId && ev.type === "CZ").length;
-        anyonSummary.textContent = `${n} X per colour · ${countCZ} CZ · ${first}: CZ → X; then ${second}: CZ → X`;
+        // f2 reports the actual, original m2 chronology: second colour first,
+        // then first colour, then the new first-colour Z gates.
+        const magneticOrder = isFGuide()
+          ? `${second}: CZ → X; then ${first}: CZ → X`
+          : `${first}: CZ → X; then ${second}: CZ → X`;
+        anyonSummary.textContent = `${n} X per colour · ${countCZ} CZ · ${magneticOrder}${isFGuide() ? `; then ${fZQubits.length} ${first} Z` : ""}`;
       } else if (anyonKind === "s1" || anyonKind === "s2") {
         anyonHint.textContent = "Select a start, then choose a horizontal or diagonal direction. Existing X/XR/RX strings may overlap; previous gates are retained. Tips and CZs are automatic.";
         anyonSummary.textContent = sBasePath.length < 2
@@ -1254,10 +1277,10 @@ def build_interactive_lattice_html(lattice) -> str:
         anyonSummary.textContent = anyonQubits.length
           ? `${anyonQubits.length} Z` : "";
       } else {
-        anyonHint.textContent = "Choose only highlighted X qubits; CZ links are automatic.";
+        anyonHint.textContent = `Choose only highlighted X qubits; CZ links are automatic.${isFGuide() ? " The matching-colour Z dressing is added last." : ""}`;
         anyonSummary.textContent = anyonQubits.length
-          ? `${anyonQubits.length} X + ${mAutoCZ.length} auto CZ · gate order: CZ → X`
-          : "Gate order: CZ → X";
+          ? `${anyonQubits.length} X + ${mAutoCZ.length} auto CZ${isFGuide() ? ` + ${fZQubits.length} Z` : ""} · gate order: CZ → X${isFGuide() ? " → Z" : ""}`
+          : `Gate order: CZ → X${isFGuide() ? " → Z" : ""}`;
       }
     }
 
@@ -1486,6 +1509,137 @@ def build_interactive_lattice_html(lattice) -> str:
       ) ? cz : null;
     }
 
+    // ===================================================================
+    // Fermionic ribbons: keep the unmodified m builder, and append Z LAST.
+    // For f_BG, for example, the first colour (Blue) supplies the Z path.
+    // The already-existing m2 factor order remains untouched.
+    // ===================================================================
+    function fThreeXAreStraight(a, b, c) {
+      const p = siteById.get(a), q = siteById.get(b), r = siteById.get(c);
+      const ux = q.x-p.x, uy = q.y-p.y, vx = r.x-q.x, vy = r.y-q.y;
+      return Math.abs(ux*vy-uy*vx) < 1e-6 && ux*vx+uy*vy > 0;
+    }
+
+    function fZFromWindows(xs, seedIndex) {
+      // The most recently placed Z is X1 for the NEXT window.
+      // Straight (X1,X2,X3): put Z on X2; bent: put Z on X3.
+      const positions = [seedIndex];
+      let i = seedIndex;
+      while (i+2 < xs.length) {
+        const next = fThreeXAreStraight(xs[i],xs[i+1],xs[i+2]) ? i+1 : i+2;
+        positions.push(next);
+        i = next;
+      }
+      return positions;
+    }
+
+    // A cell is the common centre of one complete star and its Bt triangles.
+    // Precompute triangles of THREE mutually nearest-neighbour cell centres;
+    // three collinear cells will therefore never pass the endpoint check.
+    const fCellTriangles = (() => {
+      let spacing = Infinity;
+      for (let i=0;i<starData.length;i++) for (let j=i+1;j<starData.length;j++) {
+        const a=starData[i].center,b=starData[j].center;
+        const d=Math.hypot(a[0]-b[0],a[1]-b[1]);
+        if (d>1e-6 && d<spacing) spacing=d;
+      }
+      if (!Number.isFinite(spacing)) return {spacing:0, patches:[]};
+      const adjacent=new Map(starData.map(st=>[st.id,new Set()]));
+      for(let i=0;i<starData.length;i++)for(let j=i+1;j<starData.length;j++){
+        const a=starData[i],b=starData[j];
+        if(Math.abs(Math.hypot(a.center[0]-b.center[0],a.center[1]-b.center[1])-spacing)<1e-4){
+          adjacent.get(a.id).add(b.id);adjacent.get(b.id).add(a.id);
+        }
+      }
+      const patches=[];
+      for(const a of starData)for(const b of adjacent.get(a.id))if(b>a.id)
+        for(const c of adjacent.get(a.id))if(c>b && adjacent.get(b).has(c))
+          patches.push(new Set([a.id,b,c]));
+      return {spacing,patches};
+    })();
+
+    function fSyndromeFitsEndpoints(xs, magneticEvents, zQubits) {
+      // A one-/two-X prefix is unfinished; no two disjoint endpoint regions
+      // can be distinguished geometrically yet. Still enforce two e charges.
+      const charges=new Set();
+      for(const q of zQubits)for(const id of (eStarIncidence.get(q)||[])){
+        if(charges.has(id))charges.delete(id);else charges.add(id);
+      }
+      if(charges.size!==2) return false;
+      if(xs.length<3) return true;
+      const xParity=new Set();
+      for(const ev of magneticEvents)if(ev.type==='X'){
+        const q=ev.qubits[0];if(xParity.has(q))xParity.delete(q);else xParity.add(q);
+      }
+      const cells=new Set(charges);
+      for(const st of starData){
+        let sign=1;
+        for(const q of st.x_qubits)if(zQubits.includes(q))sign=-sign;
+        if(sign*starExpectation(st,magneticEvents)!==1)cells.add(st.id);
+      }
+      for(const t of triangleData){
+        let parity=0;
+        for(const q of t.qubits)if(xParity.has(q))parity^=1;
+        if(parity){
+          const id=starByCenter.get(centerKey(t.center));
+          if(id===undefined)return false; // no eligible complete cell
+          cells.add(id);
+        }
+      }
+      const start=siteById.get(xs[0]),end=siteById.get(xs.at(-1));
+      const near=[new Set(),new Set()];
+      for(const id of cells){
+        const st=starById.get(id);if(!st)return false;
+        const d0=Math.hypot(st.center[0]-start.x,st.center[1]-start.y);
+        const d1=Math.hypot(st.center[0]-end.x,st.center[1]-end.y);
+        near[d0<=d1?0:1].add(id);
+      }
+      const canFit=(indices,anchor)=>{
+        if(!indices.size || indices.size>3)return false;
+        return fCellTriangles.patches.some(patch=>{
+          if([...indices].some(id=>!patch.has(id)))return false;
+          // Prevent interpreting a distant bulk defect as an endpoint.
+          const centres=[...patch].map(id=>starById.get(id).center);
+          const cx=centres.reduce((s,p)=>s+p[0],0)/3;
+          const cy=centres.reduce((s,p)=>s+p[1],0)/3;
+          return Math.hypot(cx-anchor.x,cy-anchor.y)<=2.25*fCellTriangles.spacing+1e-6;
+        });
+      };
+      // A narrow short prefix may have overlapping end patches. By length 3,
+      // each end must possess its own equilateral three-cell neighbourhood.
+      return canFit(near[0],start) && canFit(near[1],end) &&
+        [...near[0]].some(id=>charges.has(id)) && [...near[1]].some(id=>charges.has(id));
+    }
+
+    function fBuildZPlan(xs, magneticEvents) {
+      if(!xs.length)return null;
+      // Prefer Z at the first X. Only try the second X as initial seed if
+      // the first choice cannot produce valid localized endpoints.
+      for(const seed of (xs.length===1?[0]:[0,1])){
+        const indices=fZFromWindows(xs,seed);
+        const last=xs.length-1;
+        // Include the last Z by default whenever BOTH choices pass.
+        const withLast=indices.includes(last)?indices:[...indices,last];
+        const withoutLast=indices.filter(i=>i!==last);
+        const choices=[withLast,withoutLast];
+        // A Z mandated by a bent three-X window is never optional.
+        if(indices.includes(last))choices.splice(1);
+        for(const chosen of choices){
+          if(!chosen.length)continue;
+          const zs=chosen.map(i=>xs[i]);
+          if(fSyndromeFitsEndpoints(xs,magneticEvents,zs))return zs;
+        }
+      }
+      return null;
+    }
+
+    function fSinglePlan(qs,cz){
+      const events=[...cz.map(qubits=>({type:'CZ',qubits})),
+        ...qs.map(q=>({type:'X',qubits:[q]}))];
+      const z=fBuildZPlan(qs,events);
+      return z===null?null:{z};
+    }
+
     function availableMPlans() {
       if (mOptionCache !== null) return mOptionCache;
       const options = new Map();
@@ -1495,7 +1649,10 @@ def build_interactive_lattice_html(lattice) -> str:
         if (!ts) continue;
         const qs = [...anyonQubits,site.id];
         const plan = findMDecoration(qs,ts);
-        if (plan) options.set(site.id,{triangles:ts,cz:plan});
+        if (plan) {
+          const f = anyonKind === "f" ? fSinglePlan(qs,plan) : null;
+          if (anyonKind !== "f" || f) options.set(site.id,{triangles:ts,cz:plan,z:f?.z||[]});
+        }
       }
       mOptionCache=options;
       return options;
@@ -1627,7 +1784,15 @@ def build_interactive_lattice_html(lattice) -> str:
         const rung = mPairBoard.rungs.get(key);
         if (rung.qs.some(q => localOps.has(q) || anyonQubits.includes(q))) continue;
         const plan = compileMPairRibbon([...mPairEdges, key]);
-        if (plan) options.set(key, plan);
+        if (plan) {
+          if (anyonKind === "f2") {
+            // Reuse the first colour's ordered X support; m factors are exact.
+            const z=fBuildZPlan(plan.factors[0].xs,plan.events);
+            if (z===null) continue;
+            plan.fZ=z;
+          }
+          options.set(key, plan);
+        }
       }
       mPairOptionCache = options;
       return options;
@@ -1643,6 +1808,10 @@ def build_interactive_lattice_html(lattice) -> str:
       operationLog = operationLog.filter(ev => !(ev.source === "guided-m2" && ev.guideId === mPairGuideId));
       for (const ev of plan.events)
         recordOperation(ev.type, ev.qubits, "guided-m2", mPairGuideId);
+      // This is the ONLY f2 addition: append the first-colour Z string AFTER
+      // the entire pre-existing m2 circuit, without reordering either factor.
+      fZQubits = isFGuide() ? [...plan.fZ] : [];
+      for(const q of fZQubits)recordOperation("Z",[q],"guided-m2",mPairGuideId);
       czPairs = operationLog.filter(ev => ev.type === "CZ").map(ev => [...ev.qubits]);
       for (const q of affected) syncVisibleLocalOp(q);
       mPairEdges = [...plan.keys];
@@ -1650,15 +1819,16 @@ def build_interactive_lattice_html(lattice) -> str:
       mPairOptionCache = null;
       render();
       const n = mPairEdges.length, next = availableMPairPlans().size;
-      const order = plan.factors.map(f => `${f.color}: ${f.cz.length} CZ → ${f.xs.length} X`).join("; then ");
-      setStatus(`${anyonName()}: ${n} paired steps. ${order}. ${next} next bond(s). ` +
+      const shownFactors = isFGuide() ? [...plan.factors].reverse() : plan.factors;
+      const order = shownFactors.map(f => `${f.color}: ${f.cz.length} CZ → ${f.xs.length} X`).join("; then ");
+      setStatus(`${anyonName()}: ${n} paired steps. ${order}${isFGuide() ? `; then ${fZQubits.length} ${mPairColors[0]} Z` : ""}. ${next} next bond(s). ` +
         (n % 2 === 0 ? "Even prefix: each factor keeps its preceding odd-prefix CZ decoration." :
           "Odd-length factors complete. Use the violation tools to inspect the ordered product."));
       return true;
     }
 
     function buildMPairGuideTraces() {
-      if (anyonKind !== "m2" || !mPairBoard) return [];
+      if (!isPairMagneticGuide() || !mPairBoard) return [];
       const candidates = [...availableMPairPlans().keys()].map(key => mPairBoard.rungs.get(key));
       const chosen = mPairEdges.map(key => mPairBoard.rungs.get(key));
       function bonds(rungs, name, color, width) {
@@ -2007,18 +2177,18 @@ def build_interactive_lattice_html(lattice) -> str:
 
     function availableAnyonQubits() {
       if (!anyonKind) return [];
-      if (anyonKind === "m2") return [...new Set([...availableMPairPlans().keys()]
+      if (isPairMagneticGuide()) return [...new Set([...availableMPairPlans().keys()]
         .flatMap(key => mPairBoard.rungs.get(key).qs))];
       if (anyonKind === "s1" || anyonKind === "s2") return availableSAnyonQubits();
       if (!anyonColor) return [];
-      return anyonKind === "m"
+      return isSingleMagneticGuide()
         ? [...availableMPlans().keys()]
         : availableEAnyonQubits();
     }
 
     function clearAnyonGuidance() {
       anyonKind=null;anyonColor=null;anyonQubits=[];
-      anyonStarPath=[];mTrianglePath=[];mAutoCZ=[];
+      anyonStarPath=[];mTrianglePath=[];mAutoCZ=[];fZQubits=[];
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sGuideId=null;sCandidateCache=null;
       mOptionCache=null;mGuideId=null;
       mPairColors=[];mPairEdges=[];mPairGuideId=null;mPairBoard=null;mPairOptionCache=null;
@@ -2027,21 +2197,22 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function setAnyon(value) {
-      const match = /^(e|m)_([RGB])$/.exec(value);
-      const pairMatch = /^m_([RGB])([RGB])$/.exec(value);
-      const validPair = pairMatch && pairMatch[1] !== pairMatch[2];
+      const match = /^(e|m|f)_([RGB])$/.exec(value);
+      const pairMatch = /^(m|f)_([RGB])([RGB])$/.exec(value);
+      const validPair = pairMatch && pairMatch[2] !== pairMatch[3];
       const names = {R:"Red",G:"Green",B:"Blue"};
-      anyonKind = validPair ? "m2" : ((value === "s1" || value === "s2") ? value : (match ? match[1] : null));
+      anyonKind = validPair ? (pairMatch[1]==="f" ? "f2" : "m2") :
+        ((value === "s1" || value === "s2") ? value : (match ? match[1] : null));
       anyonColor=match ? names[match[2]]:null;
-      mPairColors=validPair ? [names[pairMatch[1]],names[pairMatch[2]]] : [];
+      mPairColors=validPair ? [names[pairMatch[2]],names[pairMatch[3]]] : [];
       mPairEdges=[];mPairOptionCache=null;
       mPairGuideId=validPair ? nextMPairGuideId++ : null;
       mPairBoard=validPair ? buildMPairBoard(mPairColors) : null;
-      anyonQubits=[];anyonStarPath=[];
+      anyonQubits=[];anyonStarPath=[];fZQubits=[];
       mTrianglePath=[];mAutoCZ=[];mOptionCache=null;
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sCandidateCache=null;
       sGuideId = (anyonKind === "s1" || anyonKind === "s2") ? nextSGuideId++ : null;
-      mGuideId = anyonKind === "m" ? nextMGuideId++ : null;
+      mGuideId = isSingleMagneticGuide() ? nextMGuideId++ : null;
       pendingCZ=null;
       if (zoomMode) setZoomMode(false);
       currentMode=anyonKind ? "ANYON":"Z";
@@ -2049,15 +2220,15 @@ def build_interactive_lattice_html(lattice) -> str:
       updateAnyonSummary();
       render();
       const options=availableAnyonQubits();
-      if (anyonKind==="m2") {
-        setStatus(options.length ? `${anyonName()}: click a gold diamond between paired qubits. Choose the shared ribbon, not two independent paths.`
+      if (isPairMagneticGuide()) {
+        setStatus(options.length ? `${anyonName()}: click a gold diamond between paired qubits. Choose the shared ribbon, not two independent paths.${isFGuide() ? " The first-colour Z string is appended last." : ""}`
           : `${anyonName()}: no complete interior paired bonds are available. Increase the lattice size or clear conflicting X/Z operations.`);
       } else if (anyonKind==="s1" || anyonKind==="s2") {
         setStatus(options.length ? `${anyonName()}: select a highlighted start, including qubits on earlier X/XR/RX strings. Extend horizontally or diagonally; overlapping gates accumulate. XR/RX, tip X, and joint CZ dressing are automatic.`
           : `${anyonName()}: no interior straight Kagome line is available.`);
-      } else if (anyonKind==="m") {
+      } else if (isSingleMagneticGuide()) {
         setStatus(options.length
-          ? `${anyonName()}: click a highlighted ${anyonColor.toLowerCase()} qubit to start the X-string. The app automatically builds the CZ-first circuit.`
+          ? `${anyonName()}: click a highlighted ${anyonColor.toLowerCase()} qubit to start the X-string. The app automatically builds the CZ-first circuit${isFGuide() ? ", then attaches the Z string last" : ""}.`
           : `${anyonName()}: no available start qubits with two complete triangles and stars.`);
       } else if (anyonKind==="e") {
         setStatus(options.length
@@ -2113,11 +2284,17 @@ def build_interactive_lattice_html(lattice) -> str:
         localOps.set(q,"X");
         recordOperation("X",[q],"guided-m",mGuideId);
       }
+      // Only the f guide adds gates beyond the untouched m construction.
+      fZQubits = isFGuide() ? [...plan.z] : [];
+      for(const q of fZQubits){
+        recordOperation("Z",[q],"guided-m",mGuideId);
+        syncVisibleLocalOp(q);
+      }
       mOptionCache=null;
     }
 
     function handleAnyonQubit(siteId) {
-      if (anyonKind === "m2") {
+      if (isPairMagneticGuide()) {
         const choices = [...availableMPairPlans().keys()].filter(key => mPairBoard.rungs.get(key).qs.includes(siteId));
         if (choices.length === 1) handleMPairBond(choices[0]);
         else setStatus(`${anyonName()}: click a gold bond-midpoint diamond to choose both qubits unambiguously.`);
@@ -2128,7 +2305,7 @@ def build_interactive_lattice_html(lattice) -> str:
         setStatus(`${anyonName()}: qubit ${siteId} is not a valid next step. Choose a highlighted qubit.`);
         return;
       }
-      if (anyonKind==="m") handleMAnyonQubit(siteId);
+      if (isSingleMagneticGuide()) handleMAnyonQubit(siteId);
       else if (anyonKind==="s1" || anyonKind==="s2") {
         if (!handleSAnyonQubit(siteId)) return;
       } else handleEAnyonQubit(siteId);
@@ -2138,10 +2315,10 @@ def build_interactive_lattice_html(lattice) -> str:
       const pathText=anyonQubits.join(" → ");
       if (anyonKind==="s1" || anyonKind==="s2") {
         setStatus(`${anyonName()} (${sDirectionLabel()}): ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Joint three-color CZ decoration checked against all complete bulk stars; use Violation to inspect the endpoint state.`);
-      } else if (anyonKind==="m") {
+      } else if (isSingleMagneticGuide()) {
         const n=anyonQubits.length;
         const starCount= n%2===0 && n>1 ? 3:2;
-        setStatus(`${anyonName()} X-string: ${pathText}. ${n} X + ${mAutoCZ.length} automatic CZ. Circuit is rebuilt CZ first, then X (written X…X CZ…CZ). Expected ${starCount} endpoint-region star violations. ${next.length} valid next X qubit${next.length===1?"":"s"}.`);
+        setStatus(`${anyonName()} X-string: ${pathText}. ${n} X + ${mAutoCZ.length} automatic CZ${isFGuide() ? ` + ${fZQubits.length} Z` : ""}. Circuit is rebuilt CZ first, then X${isFGuide() ? ", then Z" : ""}. Expected ${starCount} m endpoint-region star violations. ${next.length} valid next X qubit${next.length===1?"":"s"}.`);
       } else {
         setStatus(`${anyonName()} Z-string: ${pathText}. ${next.length} highlighted next qubit${next.length===1?"":"s"}. ${next.length?"Click one to extend the path.":"No further interior extensions; use Undo, Clear, or choose an anyon to restart."}`);
       }
@@ -2506,7 +2683,7 @@ def build_interactive_lattice_html(lattice) -> str:
       return sign;
     }
 
-    function starExpectation(star) {
+    function starExpectation(star, events = operationLog) {
       /*
        * Correct 12-body star operator from Fig. 2:
        *
@@ -2539,8 +2716,8 @@ def build_interactive_lattice_html(lattice) -> str:
 
       // For U = G_n ... G_2 G_1, evaluate U† As U by conjugating in
       // reverse chronological order through the active operation log.
-      for (let opIndex = operationLog.length - 1; opIndex >= 0; opIndex--) {
-        const event = operationLog[opIndex];
+      for (let opIndex = events.length - 1; opIndex >= 0; opIndex--) {
+        const event = events[opIndex];
 
         // --------------------------------------------------------------
         // User Z_q
@@ -3308,9 +3485,9 @@ def build_interactive_lattice_html(lattice) -> str:
       mTrianglePath = [];
       mAutoCZ = [];
       mOptionCache = null;
-      mGuideId = anyonKind === "m" ? nextMGuideId++ : null;
-      mPairEdges=[];mPairOptionCache=null;
-      mPairGuideId = anyonKind === "m2" ? nextMPairGuideId++ : null;
+      mGuideId = isSingleMagneticGuide() ? nextMGuideId++ : null;
+      mPairEdges=[];mPairOptionCache=null;fZQubits=[];
+      mPairGuideId = isPairMagneticGuide() ? nextMPairGuideId++ : null;
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sCandidateCache=null;
       sGuideId = (anyonKind === "s1" || anyonKind === "s2") ? nextSGuideId++ : null;
 
@@ -4724,7 +4901,7 @@ def build_interactive_lattice_html(lattice) -> str:
         || (point.fullData && point.fullData.name)
         || "";
       if (traceName === "m2-options") {
-        if (anyonKind === "m2") handleMPairBond(String(point.customdata));
+        if (isPairMagneticGuide()) handleMPairBond(String(point.customdata));
         return;
       }
       const clickableTraceNames = new Set([
