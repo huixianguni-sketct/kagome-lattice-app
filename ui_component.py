@@ -1558,94 +1558,26 @@ def build_interactive_lattice_html(lattice) -> str:
       return {spacing,patches};
     })();
 
-    function fSyndromeFitsEndpoints(xs, magneticEvents, zQubits) {
-      // A one-/two-X prefix is unfinished; no two disjoint endpoint regions
-      // can be distinguished geometrically yet. Still enforce two e charges.
-      const charges=new Set();
-      for(const q of zQubits)for(const id of (eStarIncidence.get(q)||[])){
-        if(charges.has(id))charges.delete(id);else charges.add(id);
-      }
-      if(charges.size!==2) return false;
-      if(xs.length<3) return true;
-      const xParity=new Set();
-      for(const ev of magneticEvents)if(ev.type==='X'){
-        const q=ev.qubits[0];if(xParity.has(q))xParity.delete(q);else xParity.add(q);
-      }
-      const cells=new Set(charges);
-      for(const st of starData){
-        let sign=1;
-        for(const q of st.x_qubits)if(zQubits.includes(q))sign=-sign;
-        if(sign*starExpectation(st,magneticEvents)!==1)cells.add(st.id);
-      }
-      for(const t of triangleData){
-        let parity=0;
-        for(const q of t.qubits)if(xParity.has(q))parity^=1;
-        if(parity){
-          const id=starByCenter.get(centerKey(t.center));
-          if(id===undefined)return false; // no eligible complete cell
-          cells.add(id);
-        }
-      }
-      const start=siteById.get(xs[0]),end=siteById.get(xs.at(-1));
-      const patchNearAnchor=(patch,anchor)=>{
-        const centres=[...patch].map(id=>starById.get(id).center);
-        const cx=centres.reduce((s,p)=>s+p[0],0)/3;
-        const cy=centres.reduce((s,p)=>s+p[1],0)/3;
-        return Math.hypot(cx-anchor.x,cy-anchor.y)<=
-          2.25*fCellTriangles.spacing+1e-6;
-      };
-
-      const startPatches=fCellTriangles.patches.filter(
-        p=>patchNearAnchor(p,start)
-      );
-      const endPatches=fCellTriangles.patches.filter(
-        p=>patchNearAnchor(p,end)
-      );
-
-      // Allow any valid equilateral patch at each endpoint.
-      // Do not assign violations based on nearest distance.
-      for(const p0 of startPatches){
-        if(![...charges].some(id=>p0.has(id))) continue;
-
-        for(const p1 of endPatches){
-          if(![...charges].some(id=>p1.has(id))) continue;
-
-          let covered=true;
-
-          for(const id of cells){
-            if(!p0.has(id) && !p1.has(id)){
-              covered=false;
-              break;
-            }
-          }
-
-          if(covered) return true;
-        }
-      }
-
-      return false;
-    }
-
     function fBuildZPlan(xs, magneticEvents) {
-      if(!xs.length)return null;
-      // Prefer Z at the first X. Only try the second X as initial seed if
-      // the first choice cannot produce valid localized endpoints.
-      for(const seed of (xs.length===1?[0]:[0,1])){
-        const indices=fZFromWindows(xs,seed);
-        const last=xs.length-1;
-        // Include the last Z by default whenever BOTH choices pass.
-        const withLast=indices.includes(last)?indices:[...indices,last];
-        const withoutLast=indices.filter(i=>i!==last);
-        const choices=[withLast,withoutLast];
-        // A Z mandated by a bent three-X window is never optional.
-        if(indices.includes(last))choices.splice(1);
-        for(const chosen of choices){
-          if(!chosen.length)continue;
-          const zs=chosen.map(i=>xs[i]);
-          if(fSyndromeFitsEndpoints(xs,magneticEvents,zs))return zs;
+      // Z placement must never reject a valid m-backbone move.
+      // magneticEvents is retained for compatibility with existing calls.
+
+      const zs = [];
+
+      // Check every consecutive triple:
+      // (X1,X2,X3), (X2,X3,X4), (X3,X4,X5), ...
+      //
+      // Straight triple: put Z on its middle X.
+      // Bent triple: skip it and check the next triple.
+      for (let i = 1; i < xs.length - 1; i++) {
+        if (fThreeXAreStraight(xs[i - 1], xs[i], xs[i + 1])) {
+          zs.push(xs[i]);
         }
       }
-      return null;
+
+      // The first and last X never receive an automatic Z.
+      // An empty list is valid: never return null.
+      return zs;
     }
 
     function fSinglePlan(qs,cz){
