@@ -153,6 +153,7 @@ def generate_kagome(nx: int, ny: int) -> KagomeLattice:
 
     for site_neighbors in neighbors.values():
         site_neighbors.sort()
+    
 
     return KagomeLattice(
         sites=sites,
@@ -160,3 +161,5 @@ def generate_kagome(nx: int, ny: int) -> KagomeLattice:
         edges=edges,
         neighbors=neighbors,
     )
+
+

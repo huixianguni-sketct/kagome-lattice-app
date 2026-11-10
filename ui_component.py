@@ -550,6 +550,10 @@ def build_interactive_lattice_html(lattice) -> str:
     .expectation-equation { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 9px; overflow-wrap: anywhere; }
     .expectation-qubits { font-size: 11px; overflow-wrap: anywhere; color: #475569; }
     .expectation-note { color: #64748b; font-size: 11px; }
+    .projection-entry { border-bottom: 1px solid #e2e8f0; padding: 8px 0; }
+    .projection-entry:last-child { border-bottom: none; }
+    .projection-plus { color: #1d4ed8; font-weight: 700; }
+    .projection-minus { color: #b45309; font-weight: 700; }
 
     #plot {
       width: 100%;
@@ -606,10 +610,73 @@ def build_interactive_lattice_html(lattice) -> str:
     #r-calc summary{cursor:pointer;}
     @media(max-width:900px){.r-layout{grid-template-columns:1fr}.r-panel{max-height:none}}
 
+
+    /* Two in-component workspaces share the same live state library.  Keeping
+       them in one iframe avoids a Streamlit rerun or cross-iframe state loss. */
+    .workspace-tabs {display:flex;gap:7px;padding:5px 0 13px;border-bottom:1px solid #dbe3ee;margin-bottom:14px;}
+    .workspace-tab {border:1px solid #cbd5e1;background:#f8fafc;color:#334155;border-radius:8px;padding:9px 20px;font-size:15px;font-weight:700;cursor:pointer;}
+    .workspace-tab.active {background:#e0e7ff;border-color:#818cf8;color:#3730a3;}
+    .workspace-panel[hidden] {display:none!important;}
+    .state-name-input {border:1px solid #cbd5e1;border-radius:7px;padding:7px 9px;font-size:13px;width:155px;max-width:100%;}
+    .playground-state-select {border:1px solid #cbd5e1;border-radius:7px;padding:7px 9px;font-size:13px;min-width:220px;max-width:100%;background:#fff;}
+    .state-controls {display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-bottom:12px;}
+    .state-controls select {min-width:240px;max-width:100%;border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:8px;font-size:13px;}
+    .state-msg {font-size:13px;color:#475569;margin:6px 0 12px;}
+    .ip-panel {border:1px solid #cbd5e1;border-radius:9px;padding:13px 15px;margin:5px 0 15px;background:#f8fafc;}
+    .ip-panel h3 {font-size:15px;margin:0 0 10px;color:#0f172a;}
+    .ip-controls {display:flex;align-items:center;flex-wrap:wrap;gap:10px;}
+    .ip-field {display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;min-width:0;max-width:100%;}
+    .ip-operator-controls {margin-bottom:8px;}
+    .ip-operator-equation {font-size:20px;overflow-x:auto;max-width:100%;padding:6px 0 12px;}
+    .ip-operator-equation math {font-size:1em;}
+    .ip-operator-controls select {min-width:220px;}
+    .ip-field select {min-width:180px;max-width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:8px;background:white;}
+    .ip-note {font-size:12px;color:#475569;line-height:1.6;margin:8px 0 0;}
+    .ip-output {font-size:13px;line-height:1.65;margin-top:10px;overflow-wrap:anywhere;}
+    .ip-value {font-size:18px;font-weight:750;color:#0f172a;margin:8px 0;}
+    .ip-output details {margin-top:10px;}
+    .ip-output summary {cursor:pointer;font-weight:650;}
+    .ip-output pre {max-height:230px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:white;padding:9px;border:1px solid #e2e8f0;border-radius:5px;}
+    .ip-norms {display:flex;gap:20px;flex-wrap:wrap;margin:7px 0;}
+    .ip-error {color:#991b1b;font-weight:600;}
+    @media(max-width:600px){.ip-field{width:100%;}.ip-field select{min-width:0;flex:1;}}
+    .calculation-layout {display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:15px;align-items:start;}
+    #calculation-plot {width:100%;height:760px;min-width:0;}
+    .calculation-side {background:white;border:1px solid #e2e8f0;border-radius:10px;padding:13px;max-height:760px;overflow:auto;font-size:12px;line-height:1.5;}
+    .calculation-side h3 {font-size:15px;margin:0 0 9px;color:#0f172a;}
+    .calculation-side p {overflow-wrap:anywhere;}
+    .state-event-list {margin:8px 0;padding-left:23px;max-height:350px;overflow-y:auto;overflow-wrap:anywhere;}
+    .state-event-list li {margin:4px 0;}
+    .btn:disabled {opacity:0.48;cursor:not-allowed;}
+    @media(max-width:900px) {.calculation-layout {grid-template-columns:1fr;} .calculation-side{max-height:none;}}
+    /* Calculation-only operator drafts. These never enter a state's gate log. */
+    .designer-toolbar {margin:8px 0;}
+    .designer-toolbar .designer-mode.active {background:#ccfbf1;border-color:#0d9488;color:#115e59;}
+    .designer-save-row {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 12px;}
+    .designer-save-row select {min-width:190px;max-width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:8px;background:white;font-size:13px;}
+    .designer-save-row label {font-size:13px;color:#475569;}
+    .designer-order {margin:8px 0 12px;padding:6px 0;min-width:0;}
+    .designer-product {font-size:25px;line-height:1.5;overflow-x:auto;max-width:100%;padding:6px 0;}
+    .designer-product math {font-family:"Cambria Math","STIX Two Math",math;font-size:1em;white-space:nowrap;}
+    .designer-status {font-size:13px;color:#991b1b;line-height:1.5;margin:8px 0;}
+    .designer-status[hidden] {display:none!important;}
+    .operator-scalar-dialog {border:1px solid #cbd5e1;border-radius:12px;padding:20px;width:min(330px,calc(100vw - 70px));color:#0f172a;box-shadow:0 12px 35px rgba(15,23,42,.20);}
+    .operator-scalar-dialog::backdrop {background:rgba(15,23,42,.28);}
+    .operator-scalar-dialog h3 {margin:0 0 16px;font-size:17px;}
+    .operator-scalar-dialog label {display:block;font-size:13px;margin-bottom:6px;}
+    .operator-scalar-dialog input {box-sizing:border-box;width:100%;border:1px solid #94a3b8;border-radius:7px;padding:9px;font-size:16px;}
+    .operator-scalar-actions {display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+    #calculation-tab > .ip-panel {margin-top:18px;}
+    @media(max-width:600px){.designer-save-row select{min-width:0;flex:1;}.designer-save-row .state-name-input{flex:1;}}
   </style>
 </head>
 <body>
   <div class="wrapper">
+    <nav class="workspace-tabs" aria-label="Kagome workspace tabs">
+      <button type="button" class="workspace-tab active" id="playground-tab-btn" aria-selected="true">Playground</button>
+      <button type="button" class="workspace-tab" id="calculation-tab-btn" aria-selected="false">Calculation</button>
+    </nav>
+    <section class="workspace-panel" id="playground-tab" aria-label="Playground">
     <div class="toolbar anyon-toolbar">
       <span class="toolbar-label">Anyon</span>
       <select class="anyon-selector" id="anyon-select" aria-label="Choose an anyon to construct">
@@ -634,59 +701,51 @@ def build_interactive_lattice_html(lattice) -> str:
       </select>
       <span class="anyon-hint" id="anyon-hint">Choose an anyon, then click a highlighted qubit.</span>
       <span class="anyon-summary" id="anyon-summary"></span>
+      <button class="btn action" id="finish-s-btn" hidden
+        title="Finish the current s1/s2 ribbon, then apply P+ at its clean initial and final endpoint stars">Finish s string</button>
     </div>
 
-    <div class="toolbar">
-      <span class="toolbar-label">Operator</span>
-
+    <div class="toolbar" aria-label="Operations toolbar">
+      <span class="toolbar-label">Operations</span>
       <button class="btn mode-btn active" data-mode="Z">Z</button>
       <button class="btn mode-btn" data-mode="X">X</button>
-      <button class="btn mode-btn" data-mode="R" title="R = exp(+iπ Z/4)">R (π/4)</button>
+      <button class="btn mode-btn" data-mode="R" title="R = exp(+iπ Z/4)">R</button>
       <button class="btn mode-btn" data-mode="CZ">CZ</button>
+      <button class="btn mode-btn" data-mode="P_PLUS" title="Postselect star Aₛ = +1; Pₛ⁺ = (I + Aₛ)/2">P+</button>
+      <button class="btn mode-btn" data-mode="P_MINUS" title="Postselect star Aₛ = −1; Pₛ⁻ = (I − Aₛ)/2">P-</button>
       <button class="btn mode-btn" data-mode="ERASE">Erase</button>
-
-      <button class="btn action" id="zoom-btn">Zoom</button>
-      <button class="btn action" id="save-btn">Save PNG</button>
       <button class="btn action" id="undo-btn">Undo</button>
       <button class="btn action" id="clear-btn">Clear</button>
-    </div>
-
-    <div class="toolbar visibility-toolbar">
-      <span class="toolbar-label">Visibility</span>
-
-      <button class="btn visibility-btn active" data-visibility="Z"
-              title="Show or hide Z labels">Z</button>
-
-      <button class="btn visibility-btn active" data-visibility="X"
-              title="Show or hide X labels">X</button>
-      <button class="btn visibility-btn active" data-visibility="R"
-              title="Show or hide R labels (also within XR/RX)">R</button>
-
-      <button class="btn visibility-btn active" data-visibility="CZ"
-              title="Show or hide CZ connections and labels">CZ</button>
-    </div>
-
-    <div class="toolbar violation-toolbar">
-      <span class="toolbar-label">Violation</span>
-
-      <button
-        class="btn violation-btn"
-        data-violation="STAR"
-        title="Show or hide violated star operators">
-        Star (Aₛ)
-      </button>
-
-      <button
-        class="btn violation-btn"
-        data-violation="TRIANGLE"
-        title="Show or hide violated triangle operators">
-        Triangle (Bₜ)
-      </button>
-
       <button class="btn expectation-btn" data-expectation="STAR"
-        title="Click a complete hexagonal star to inspect its expectation">Star exp.</button>
+        title="Click a complete hexagonal star to inspect its expectation">Aₛ Exp.</button>
       <button class="btn expectation-btn" data-expectation="TRIANGLE"
-        title="Click a complete monochromatic triangle to inspect its expectation">Triangle exp.</button>
+        title="Click a complete monochromatic triangle to inspect its expectation">Bₜ Exp.</button>
+    </div>
+
+    <div class="toolbar functions-toolbar" aria-label="Functions toolbar">
+      <span class="toolbar-label">Functions</span>
+      <button class="btn action" id="import-states-btn" title="Import one saved state or a collection of states">Import</button>
+      <input type="file" id="import-states-file" accept=".json,application/json" hidden aria-label="Choose a saved Kagome JSON file" />
+      <button class="btn action" id="export-states-btn" title="Download saved states and operator combinations in one JSON file">Export</button>
+      <button class="btn action" id="zoom-btn">Zoom</button>
+      <button class="btn action" id="save-btn">Save PNG</button>
+      <input class="state-name-input" id="state-name-input" type="text" maxlength="100"
+        placeholder="Name your state" aria-label="Name for saved state" />
+      <button class="btn action" id="save-state-btn" title="Store the named state in the in-app library (use Export to download JSON)">Save state</button>
+      <select class="playground-state-select" id="playground-state-select" aria-label="Choose a saved state to edit or create a new state">
+        <option value="__NEW__">Create a new state…</option>
+      </select>
+    </div>
+
+    <div class="toolbar visibility-toolbar" aria-label="Visibility toolbar">
+      <span class="toolbar-label">Visibility</span>
+      <button class="btn visibility-btn active" data-visibility="Z" title="Show or hide Z labels">Z</button>
+      <button class="btn visibility-btn active" data-visibility="X" title="Show or hide X labels">X</button>
+      <button class="btn visibility-btn active" data-visibility="R" title="Show or hide R labels (also within XR/RX)">R</button>
+      <button class="btn visibility-btn active" data-visibility="CZ" title="Show or hide CZ connections and labels">CZ</button>
+      <button class="btn visibility-btn active" data-visibility="P" title="Show or hide postselected star projector marks">Projectors</button>
+      <button class="btn violation-btn active" data-violation="STAR" title="Show or hide violated star operators">Aₛ Vio.</button>
+      <button class="btn violation-btn active" data-violation="TRIANGLE" title="Show or hide violated triangle operators">Bₜ Violation</button>
     </div>
 
     <div class="status" id="status">Mode: Z</div>
@@ -724,6 +783,10 @@ def build_interactive_lattice_html(lattice) -> str:
           <p class="expectation-intro" id="expectation-content">
             Press <strong>Star exp.</strong> or <strong>Triangle exp.</strong>, then click inside a complete polygon on the lattice.
           </p>
+        </section>
+        <section id="projector-panel" class="expectation-panel" aria-live="polite">
+          <h3>Star projections (postselected)</h3>
+          <div id="projector-content" class="expectation-intro">No star projectors have been applied.</div>
         </section>
       </aside>
     </div>
@@ -786,6 +849,94 @@ def build_interactive_lattice_html(lattice) -> str:
         </aside>
       </div>
     </section>
+    </section><!-- Playground -->
+    <section class="workspace-panel" id="calculation-tab" aria-label="Calculation" hidden>
+      <div class="state-controls">
+        <label class="toolbar-label" for="calculation-state-select">Saved state</label>
+        <select id="calculation-state-select" aria-label="Choose a saved state"><option value="">Select a state…</option></select>
+        <button class="btn action" id="calculation-import-btn">Import</button>
+        <button class="btn action" id="calculation-export-btn">Export</button>
+        <span class="anyon-hint" id="saved-count">0 states saved</span>
+      </div>
+      <div class="toolbar designer-toolbar" aria-label="Calculation Operators toolbar">
+        <span class="toolbar-label">Operators</span>
+        <button type="button" class="btn designer-mode" data-designer-mode="Z" title="Design Z on a qubit" aria-pressed="false">Z</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="X" title="Design X on a qubit" aria-pressed="false">X</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="Y" title="Design Pauli Y on a qubit" aria-pressed="false">Y</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="CZ" title="Choose two distinct qubits for CZ" aria-pressed="false">CZ</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="R" title="R = exp(+iπ Z/4)" aria-pressed="false">R</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="P_PLUS" title="Design (I + Aₛ)/2 on a complete star; no postselection is performed" aria-pressed="false">P+</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="P_MINUS" title="Design (I − Aₛ)/2 on a complete star; no postselection is performed" aria-pressed="false">P-</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="A" title="Design the full Aₛ operator on a complete star" aria-pressed="false">Aₛ</button>
+        <button type="button" class="btn designer-mode" data-designer-mode="B" title="Design Bₜ on a complete monochromatic triangle" aria-pressed="false">Bₜ</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="I" title="Insert the identity operator">I</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="PLUS" title="Add the next term">+</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="MINUS" title="Subtract the next term or start a negative term">−</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="TIMES" title="Enter a scalar coefficient (or multiply the preceding factor by a scalar)">×</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="DIVIDE" title="Divide the preceding product or bracketed expression by a scalar">÷</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="LPAREN" title="Open a bracket">(</button>
+        <button type="button" class="btn designer-expression" data-designer-expression="RPAREN" title="Close a bracket">)</button>
+      </div>
+      <div class="designer-save-row" aria-label="Save operator combinations">
+        <input class="state-name-input" id="operator-name-input" type="text" maxlength="100" placeholder="Operator name" aria-label="Name for operator combination" />
+        <button type="button" class="btn action" id="save-operators-btn">Save Operators</button>
+        <label for="saved-operators-select">Saved operators</label>
+        <select id="saved-operators-select" aria-label="Choose a saved operator combination"><option value="">New combination…</option></select>
+        <button type="button" class="btn action" id="operator-undo-btn" title="Undo only the last proposed operator or cancel a pending CZ">Undo last</button>
+        <button type="button" class="btn action" id="operator-clear-btn" title="Start a new empty operator draft; saved combinations are kept">Clear draft</button>
+        <span id="operator-saved-count" class="anyon-hint">0 operator combinations saved</span>
+      </div>
+      <dialog id="operator-scalar-dialog" class="operator-scalar-dialog" aria-labelledby="operator-scalar-title">
+        <form id="operator-scalar-form">
+          <h3 id="operator-scalar-title">Multiply by a scalar</h3>
+          <label for="operator-scalar-input">Scalar</label>
+          <input id="operator-scalar-input" type="text" inputmode="decimal" maxlength="40" autocomplete="off" placeholder="e.g. 3" aria-describedby="operator-scalar-error" />
+          <div id="operator-scalar-error" class="designer-status" role="alert"></div>
+          <div class="operator-scalar-actions">
+            <button type="button" class="btn action" id="operator-scalar-cancel">Cancel</button>
+            <button type="submit" class="btn" id="operator-scalar-confirm">Insert</button>
+          </div>
+        </form>
+      </dialog>
+      <div id="operator-designer-status" class="designer-status" role="status" aria-live="polite" hidden></div>
+      <section class="designer-order" aria-label="Designed operator">
+        <div id="operator-product" class="designer-product" aria-live="polite" aria-atomic="true"></div>
+      </section>
+      <p class="state-msg" id="calculation-status" role="status">Save a state on Playground or import JSON to display it here. This canvas does not modify the saved state.</p>
+      <div class="calculation-layout">
+        <div id="calculation-plot" role="img" aria-label="Saved Kagome state with an editable, non-acting operator-design overlay"></div>
+        <aside class="calculation-side">
+          <h3>Saved-state details</h3>
+          <div id="calculation-state-info">Select a saved state from the dropdown above.</div>
+          <h3 style="margin-top:16px">State preparation (read-only)</h3>
+          <div id="calculation-operation-list" class="state-msg">No state selected.</div>
+          <p class="expectation-note">States retain their ordered X/Z/R/CZ/P operations. Inner Product uses these saved operations, not any unsaved Playground edits. The saved state is read-only; teal annotations belong only to the separate operator draft.</p>
+        </aside>
+      </div>
+      <section class="ip-panel" aria-labelledby="ip-heading">
+        <h3 id="ip-heading">Inner Product</h3>
+        <div class="ip-controls ip-operator-controls">
+          <label class="ip-field" for="ip-operator-select">Saved operator O
+            <select id="ip-operator-select" aria-label="Saved operator for the matrix element"><option value="">I (identity)</option></select>
+          </label>
+        </div>
+        <div id="ip-operator-equation" class="ip-operator-equation" aria-label="Selected saved operator">O = I</div>
+        <div class="ip-controls">
+          <label class="ip-field" for="ip-state-1">Ket |1⟩
+            <select id="ip-state-1" aria-label="State 1 (ket)"><option value="">Choose |1⟩…</option></select>
+          </label>
+          <label class="ip-field" for="ip-state-2">Bra ⟨2|
+            <select id="ip-state-2" aria-label="State 2 (bra)"><option value="">Choose |2⟩…</option></select>
+          </label>
+          <button class="btn action" id="ip-calculate-btn" disabled>Calculate ⟨2|O|1⟩</button>
+          <button class="btn action" id="ip-normalized-btn" disabled
+            title="Divide ⟨2|O|1⟩ by √(⟨2|2⟩ ⟨1|1⟩); the operator O is unchanged">Normalized ⟨2|O|1⟩</button>
+        </div>
+        <p class="ip-note">|j⟩ = Oⱼ|Ω⟩. Calculate returns ⟨2|O|1⟩; Normalized returns ⟨2|O|1⟩ / √(⟨2|2⟩ ⟨1|1⟩).
+          O is unchanged. Choose I for an overlap, or the same state twice for an expectation value. Normalization requires both input norms to be nonzero. The canvas and unsaved operator draft are independent.</p>
+        <div id="ip-result" class="ip-output" role="status" aria-live="polite">Save or import states, then choose both inputs.</div>
+      </section>
+    </section><!-- Calculation -->
   </div>
 
   <script>
@@ -801,12 +952,14 @@ def build_interactive_lattice_html(lattice) -> str:
     const anyonSelect = document.getElementById("anyon-select");
     const anyonHint = document.getElementById("anyon-hint");
     const anyonSummary = document.getElementById("anyon-summary");
+    const finishSBtn = document.getElementById("finish-s-btn");
     const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
     const visibilityButtons = Array.from(document.querySelectorAll(".visibility-btn"));
     const violationButtons = Array.from(document.querySelectorAll(".violation-btn"));
     const expectationButtons = Array.from(document.querySelectorAll(".expectation-btn"));
     const expectationContent = document.getElementById("expectation-content");
     const expectationPanel = document.getElementById("expectation-panel");
+    const projectorContent = document.getElementById("projector-content");
     const zoomBtn = document.getElementById("zoom-btn");
     const saveBtn = document.getElementById("save-btn");
     const undoBtn = document.getElementById("undo-btn");
@@ -815,6 +968,70 @@ def build_interactive_lattice_html(lattice) -> str:
     const addQubitBtn = document.getElementById("add-qubit-btn");
     const trackerTableBody = document.getElementById("tracker-table-body");
     const trackerEmpty = document.getElementById("tracker-empty");
+    const playgroundTabBtn = document.getElementById("playground-tab-btn");
+    const calculationTabBtn = document.getElementById("calculation-tab-btn");
+    const playgroundTab = document.getElementById("playground-tab");
+    const calculationTab = document.getElementById("calculation-tab");
+    const stateNameInput = document.getElementById("state-name-input");
+    const saveStateBtn = document.getElementById("save-state-btn");
+    const playgroundStateSelect = document.getElementById("playground-state-select");
+    const exportStatesBtn = document.getElementById("export-states-btn");
+    const importStatesBtn = document.getElementById("import-states-btn");
+    const importStatesFile = document.getElementById("import-states-file");
+    const calculationSelect = document.getElementById("calculation-state-select");
+    const calculationStatus = document.getElementById("calculation-status");
+    const calculationPlot = document.getElementById("calculation-plot");
+    const calculationStateInfo = document.getElementById("calculation-state-info");
+    const calculationOperationList = document.getElementById("calculation-operation-list");
+    const savedCount = document.getElementById("saved-count");
+    const ipOperatorSelect = document.getElementById("ip-operator-select");
+    const ipOperatorEquation = document.getElementById("ip-operator-equation");
+    let ipSelectedOperatorSignature = null;
+    const ipState1Select = document.getElementById("ip-state-1");
+    const ipState2Select = document.getElementById("ip-state-2");
+    const ipCalculateBtn = document.getElementById("ip-calculate-btn");
+    const ipNormalizedBtn = document.getElementById("ip-normalized-btn");
+    const ipResultDiv = document.getElementById("ip-result");
+    let ipExactEngine = null;
+    let ipCalculationToken = 0;
+    let ipLastReport = null;
+    const designerModeButtons = Array.from(document.querySelectorAll('.designer-mode'));
+    const designerExpressionButtons = Array.from(document.querySelectorAll('.designer-expression'));
+    const operatorScalarDialog = document.getElementById('operator-scalar-dialog');
+    const operatorScalarTitle = document.getElementById('operator-scalar-title');
+    const operatorScalarInput = document.getElementById('operator-scalar-input');
+    const operatorScalarError = document.getElementById('operator-scalar-error');
+    let operatorScalarAction = null;
+    const operatorNameInput = document.getElementById('operator-name-input');
+    const saveOperatorsBtn = document.getElementById('save-operators-btn');
+    const savedOperatorsSelect = document.getElementById('saved-operators-select');
+    const operatorUndoBtn = document.getElementById('operator-undo-btn');
+    const operatorClearBtn = document.getElementById('operator-clear-btn');
+    const operatorProduct = document.getElementById('operator-product');
+    const operatorDesignerStatus = document.getElementById('operator-designer-status');
+    const operatorSavedCount = document.getElementById('operator-saved-count');
+    // Independent session-only operator library. Drafts never act on the
+    // canvas. Only an explicitly selected SAVED expression is evaluated on
+    // temporary symbolic copies by the matrix-element calculator.
+    let savedOperators = [];
+    let nextSavedOperatorId = 1;
+    let operatorDraft = [];
+    let operatorDesignMode = null;
+    let operatorPendingCZ = null;
+    let operatorEditingId = null;
+    let operatorDraftBaseline = JSON.stringify({name:'',operators:[]});
+    let calculationPointer = null;
+    let calculationPointerSerial = 0;
+    let calculationConsumedPointer = -1;
+    let savedStates = [];
+    let selectedSavedId = null;
+    let nextSavedStateId = 1;
+    let activeWorkspaceTab = "playground";
+    let playgroundEditingStateId = null;
+    let playgroundBaselineSignature = "";
+    let suppressPlaygroundStateChange = false;
+    let blankPlaygroundState = null;
+
 
     const siteById = new Map(siteData.map(s => [s.id, s]));
 
@@ -869,6 +1086,11 @@ def build_interactive_lattice_html(lattice) -> str:
     let sGuideId = null;
     let nextSGuideId = 1;
     let sCandidateCache = null;
+    // The completed s ribbons are kept so the NEXT s ribbon can identify a
+    // common endpoint/star and guarantee a P+ at their interface BEFORE its gates.
+    // All objects here are small, JSON-serializable descriptions (not quantum states).
+    let sFinishedRibbons = [];
+    let sInterfaceStatus = ""; // Display-only confirmation of the shared junction P+.
 
     // A physical qubit carries one colour of e anyon and belongs to zero,
     // one, or two complete stars of that colour in an open-boundary patch.
@@ -900,6 +1122,17 @@ def build_interactive_lattice_html(lattice) -> str:
       }
     }
 
+    // All complete B_t triangles belonging to the central cell of each star.
+    // Do not infer 'containing a triangle' from qubit-set intersection: a D4
+    // star has six outer X tips and six inner hexagon vertices, whereas B_t
+    // acts on the three same-colour triangle qubits around its center.
+    const trianglesInStar = new Map(starData.map(st => [st.id, []]));
+    for (const triangle of triangleData) {
+      const id = starForTriangle.get(triangle.id);
+      if (id !== undefined && trianglesInStar.has(id))
+        trianglesInStar.get(id).push(triangle);
+    }
+
     // Display-only visibility state. Turning one of these off does not
     // remove the operator from the lattice state or tracked-qubit table.
     let operatorVisibility = {
@@ -907,19 +1140,57 @@ def build_interactive_lattice_html(lattice) -> str:
       X: true,
       R: true,
       CZ: true,
+      P: true,
     };
 
     // Violation overlays are display-only.  The physics is always evaluated
     // from the active ordered operationLog.
     let violationVisibility = {
-      STAR: false,
-      TRIANGLE: false,
+      STAR: true,
+      TRIANGLE: true,
     };
 
     // Inspection is display-only: it never modifies the ordered circuit.
     let expectationMode = null; // "STAR", "TRIANGLE" or null
     let inspectedObject = null; // {kind, id}
 
+    // Projector mode chooses a COMPLETE star by clicking its hexagon or center.
+    // Projectors are non-unitary operations in the same chronological log.
+    // The existing R workbench's exact phase-polynomial engine is reused for
+    // positive-normalized conditional states; never treat P as a Pauli gate.
+    let mainExactEngine = null;
+    let mainExactKey = null;
+    let mainExactState = null;
+    let mainStarExpectationCache = new Map();
+
+    function isProjectorMode() {
+      return currentMode === "P_PLUS" || currentMode === "P_MINUS";
+    }
+
+    function hasMainProjectors(events = operationLog) {
+      return events.some(ev => ev.type === "P");
+    }
+
+    function mainEventKey(events) {
+      return JSON.stringify(events.map(ev => [ev.type, ev.qubits, ev.starId ?? null, ev.sign ?? 1, ev.autoTrivial === true]));
+    }
+
+    function getMainExactEngine() {
+      if (!mainExactEngine) mainExactEngine = new RSymbolicEngine(siteData, starData, triangleData);
+      return mainExactEngine;
+    }
+
+    function mainExactStateFor(events = operationLog) {
+      const key = mainEventKey(events);
+      if (events === operationLog && key === mainExactKey && mainExactState) return mainExactState;
+      const state = getMainExactEngine().run(events);
+      if (events === operationLog) {
+        mainExactKey = key;
+        mainExactState = state;
+        mainStarExpectationCache.clear();
+      }
+      return state;
+    }
 
     // Ordered list of currently active operations.
     // Each entry is { id, type, qubits }.
@@ -1017,6 +1288,7 @@ def build_interactive_lattice_html(lattice) -> str:
         return `CZ with qubit ${partner}`;
       }
 
+      if (event.type === "X" && event.autoInterfaceCorrection) return "X (s-interface correction)";
       return event.type;
     }
 
@@ -1154,12 +1426,16 @@ def build_interactive_lattice_html(lattice) -> str:
         sAutoCZ: sAutoCZ.map(pair => [...pair]),
         sGuideId: sGuideId,
         nextSGuideId: nextSGuideId,
+        sFinishedRibbons: sFinishedRibbons.map(r => ({...r,startStarIds:[...(r.startStarIds||[])],endStarIds:[...(r.endStarIds||[])]})),
+        sInterfaceStatus: sInterfaceStatus,
         operationLog: operationLog.map(event => ({
           id: event.id,
           type: event.type,
           qubits: [...event.qubits],
           source: event.source || "manual",
           guideId: event.guideId ?? null,
+          ...(event.type === "P" ? {starId: event.starId, sign: event.sign, autoTrivial: event.autoTrivial === true, autoSemion: event.autoSemion === true, autoInterface: event.autoInterface === true, interfaceOldGuideId: event.interfaceOldGuideId ?? null} : {}),
+          ...(event.autoInterfaceCorrection === true ? {autoInterfaceCorrection:true, autoInterface:true, autoSemion:true, interfaceOldGuideId:event.interfaceOldGuideId ?? null} : {}),
         })),
         nextOperationId: nextOperationId,
       };
@@ -1190,6 +1466,8 @@ def build_interactive_lattice_html(lattice) -> str:
       sAutoCZ = (state.sAutoCZ || []).map(pair => [...pair]);
       sGuideId = state.sGuideId ?? null;
       nextSGuideId = state.nextSGuideId ?? nextSGuideId;
+      sFinishedRibbons = (state.sFinishedRibbons || []).map(r => ({...r,startStarIds:[...(r.startStarIds||[])],endStarIds:[...(r.endStarIds||[])]}));
+      sInterfaceStatus = state.sInterfaceStatus || "";
       sCandidateCache = null;
       mOptionCache = null;
       anyonSelect.value = anyonKind
@@ -1204,6 +1482,8 @@ def build_interactive_lattice_html(lattice) -> str:
         qubits: [...event.qubits],
         source: event.source || "manual",
         guideId: event.guideId ?? null,
+        ...(event.type === "P" ? {starId: event.starId, sign: event.sign, autoTrivial: event.autoTrivial === true, autoSemion: event.autoSemion === true, autoInterface: event.autoInterface === true, interfaceOldGuideId: event.interfaceOldGuideId ?? null} : {}),
+        ...(event.autoInterfaceCorrection === true ? {autoInterfaceCorrection:true, autoInterface:true, autoSemion:true, interfaceOldGuideId:event.interfaceOldGuideId ?? null} : {}),
       }));
       nextOperationId = state.nextOperationId;
       mOptionCache = null;
@@ -1250,6 +1530,8 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function updateAnyonSummary() {
+      // Finishing is explicit, and switching to another tool also finishes.
+      finishSBtn.hidden = !(anyonKind === "s1" || anyonKind === "s2") || sBasePath.length < 2;
       if (!anyonKind) {
         anyonHint.textContent = "Choose an anyon, then click a highlighted qubit.";
         anyonSummary.textContent = "";
@@ -1268,10 +1550,10 @@ def build_interactive_lattice_html(lattice) -> str:
           : `${first}: CZ → X; then ${second}: CZ → X`;
         anyonSummary.textContent = `${n} X per colour · ${countCZ} CZ · ${magneticOrder}${isFGuide() ? `; then ${fZQubits.length} ${first} Z` : ""}`;
       } else if (anyonKind === "s1" || anyonKind === "s2") {
-        anyonHint.textContent = "Select a start, then choose a horizontal or diagonal direction. Existing X/XR/RX strings may overlap; previous gates are retained. Tips and CZs are automatic.";
+        anyonHint.textContent = "Finish each s ribbon to project its endpoints. At a joined interface, local X corrections are checked after the new ribbon and before the interface P+.";
         anyonSummary.textContent = sBasePath.length < 2
           ? (sBasePath.length ? "Select direction from the highlighted neighbors" : "Up/down triangles: mirrored XR ↔ RX")
-          : `${sBasePath.length} spine · ${sDirectionLabel()} · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ · gate order: CZ → X/R`;
+          : `${sBasePath.length} spine · ${sDirectionLabel()} · ${sGuidedX.length} X · ${sBasePath.length} R · ${sAutoCZ.length} CZ · endpoint P+ pending until Finish`;
       } else if (anyonKind === "e") {
         anyonHint.textContent = "Choose highlighted qubits to extend the Z-string.";
         anyonSummary.textContent = anyonQubits.length
@@ -2080,44 +2362,323 @@ def build_interactive_lattice_html(lattice) -> str:
       return result;
     }
 
+    // Return the complete stars with no violated B_t in their own cell.
+    // Projectors commute with B_t, so the syndrome from X parity is still
+    // the relevant syndrome after any earlier +/- star postselections.
+    function sCleanStarIds(events) {
+      const oddX = new Set();
+      for (const ev of events) {
+        if (ev.type !== "X" || ev.qubits.length !== 1) continue;
+        const q = ev.qubits[0];
+        if (oddX.has(q)) oddX.delete(q); else oddX.add(q);
+      }
+      return starData.filter(st => {
+        const triangles = trianglesInStar.get(st.id) || [];
+        // Only decide for cells with known, complete monochromatic B_t's.
+        return triangles.length > 0 && triangles.every(tri =>
+          tri.qubits.filter(q => oddX.has(q)).length % 2 === 0);
+      }).map(st => st.id);
+    }
+
+    // Sufficient (not necessary) test that P+ = I on the state at THIS
+    // point in the circuit, since the reference obeys A_s|Ω>=|Ω>.
+    // It is safe to skip the expensive symbolic sum while keeping a real
+    // P+ event and its p=1 measurement in the chronological operation log.
+    function sProvablyTrivialPlus(st, previousEvents) {
+      const tips = new Set(st.x_qubits), inner = new Set(st.inner_qubits);
+      for (const ev of previousEvents) {
+        if (ev.type === "P") {
+          // All stars commute with one another; P- on this same star
+          // could make the requested P+ outcome impossible.
+          if (ev.starId === st.id && ev.sign === -1) return false;
+          continue;
+        }
+        if (ev.type === "A") continue;
+        if (ev.qubits.length === 1) {
+          const q=ev.qubits[0];
+          if ((ev.type === "Z" || ev.type === "R" || ev.type === "Rdag") && tips.has(q)) return false;
+          if (ev.type === "X" && inner.has(q)) return false;
+        } else if (ev.type === "CZ" && ev.qubits.some(q => tips.has(q))) return false;
+      }
+      return true;
+    }
+
+    function sCompiledEvents(built,cz) {
+      const events = cz.map(qubits => ({type:"CZ",qubits:[...qubits],source:"guided-s",guideId:sGuideId}));
+      for (const q of built.xIds) {
+        const order = built.gateOrder.get(q);
+        if (order === "XR") {
+          events.push({type:"R",qubits:[q],source:"guided-s",guideId:sGuideId});
+          events.push({type:"X",qubits:[q],source:"guided-s",guideId:sGuideId});
+        } else if (order === "RX") {
+          events.push({type:"X",qubits:[q],source:"guided-s",guideId:sGuideId});
+          events.push({type:"R",qubits:[q],source:"guided-s",guideId:sGuideId});
+        } else events.push({type:"X",qubits:[q],source:"guided-s",guideId:sGuideId});
+      }
+      return events;
+    }
+
+    // The new s ribbon has a geometric START and END.  A new START can
+    // coincide with (or locally touch) an old completed ribbon endpoint.
+    // Only endpoint NEIGHBORHOODS are postselected; never all bulk stars.
+    // B_t lives at the same cell centre as A_s, not on the hexagon X-tips.
+    const sEndpointStarRadius = 2.10;
+    const sJunctionTriangleRadius = 1.85;
+    const sCorrectionSearchRadius = 2.45;
+
+    function sStarsNearSite(q, radius = sEndpointStarRadius) {
+      const p=siteById.get(q);
+      if (!p) return [];
+      return starData.filter(st => Math.hypot(st.center[0]-p.x,st.center[1]-p.y) <= radius+1e-7);
+    }
+
+    function sCleanEndpointStars(events, anchorIds) {
+      const clean=new Set(sCleanStarIds(events)), distinct=new Map();
+      for (const q of anchorIds)
+        for (const st of sStarsNearSite(q))
+          if (clean.has(st.id)) distinct.set(st.id,st);
+      // Stable candidate order. The finish step projects ONLY nontrivial A_s.
+      return [...distinct.values()].sort((a,b)=>a.id-b.id);
+    }
+
+    // Compatibility helper for existing calls that only want a terminal star.
+    function sEndpointCleanStar(events,initial,path=sBasePath) {
+      if (path.length<2) return null;
+      return sCleanEndpointStars(events,[initial?path[0]:path.at(-1)])[0]||null;
+    }
+    function sTerminalCleanStar(events) {return sEndpointCleanStar(events,false);}
+
+    // The START of the new string is the ONLY possible old/new interface.
+    // Detect it from completed s-ribbon endpoints, not from P+ labels (a
+    // clean star's centre does not necessarily touch the endpoint X-tip).
+    function sJoinedInterface(path=sBasePath) {
+      if(path.length<2)return null;
+      const start=path[0],p=siteById.get(start);
+      if(!p)return null;
+      for(const prior of [...sFinishedRibbons].reverse()) {
+        if(!operationLog.some(ev=>ev.source==='guided-s'&&ev.guideId===prior.guideId&&ev.type==='X'))continue;
+        const ends=[
+          {q:prior.end,other:prior.start,which:'final'},
+          {q:prior.start,other:prior.end,which:'initial'}
+        ];
+        const joined=ends.map(e=>{
+          const old=siteById.get(e.q);
+          if(!old)return null;
+          const d=Math.hypot(p.x-old.x,p.y-old.y);
+          const sameLocalCell=starData.some(st=>st.x_qubits.includes(start)&&st.x_qubits.includes(e.q));
+          return (d<1.01 || (d<=2.01 && sameLocalCell)) ? {...e,d}:null;
+        }).filter(Boolean).sort((a,b)=>a.d-b.d||Number(a.which!=='final')-Number(b.which!=='final'));
+        if(joined.length) {
+          const match=joined[0];
+          return {ok:true,prior,old:match.q,oldOther:match.other,start,which:match.which};
+        }
+      }
+      return null;
+    }
+
+    function sTriangleSyndrome(events) {
+      const odd=new Set();
+      for(const ev of events)if(ev.type==='X'&&ev.qubits.length===1) {
+        const q=ev.qubits[0];if(odd.has(q))odd.delete(q);else odd.add(q);
+      }
+      return new Set(triangleData.filter(t=>
+        t.qubits.filter(q=>odd.has(q)).length%2===1).map(t=>t.id));
+    }
+
+    // Triangle cells assigned to the junction start, not the distant old/new
+    // endpoints. This avoids accidentally erasing a spectator or the newly
+    // created endpoint. For very short ribbons there may be too little room
+    // to distinguish the clusters; do not invent a correction in that case.
+    function sJunctionTriangles(join,path=sBasePath) {
+      const start=siteById.get(join.start),old=siteById.get(join.old);
+      const far=[siteById.get(path.at(-1)),siteById.get(join.oldOther)].filter(Boolean);
+      if(!start||!old)return [];
+      return triangleData.filter(t=>{
+        const d=Math.min(Math.hypot(t.center[0]-start.x,t.center[1]-start.y),
+          Math.hypot(t.center[0]-old.x,t.center[1]-old.y));
+        if(d>sJunctionTriangleRadius+1e-7)return false;
+        // Exclude a remote endpoint's closer flux, even if the geometric
+        // sampling disks overlap in a short or bent two-ribbon configuration.
+        return far.every(p=>d<=Math.hypot(t.center[0]-p.x,t.center[1]-p.y)+1e-7);
+      });
+    }
+
+    // Search a LOCAL multi-X correction whose entire B_t syndrome equals
+    // exactly the remaining violations assigned to the interface. A candidate
+    // X can temporarily flip B_t outside the junction: another X in the SAME
+    // correction may cancel that flip. Verify the XOR of the whole set,
+    // rather than rejecting individual X sites prematurely.
+    function sInterfaceXPlan(events,join,path=sBasePath) {
+      const p=siteById.get(join.start),oldSite=siteById.get(join.old);
+      if(!p||!oldSite)return {ok:false,note:'Interface endpoint geometry is unavailable.'};
+      const all=sTriangleSyndrome(events);
+      const inside=sJunctionTriangles(join,path);
+      const region=new Set(inside.map(t=>t.id));
+      const need=inside.filter(t=>all.has(t.id)).map(t=>t.id);
+      if(!need.length)return {ok:true,qubits:[],changedTriangles:[],
+        note:'No violated B_t assigned to the old/new interface; no correction X needed.'};
+      const pos=new Map(triangleData.map((t,i)=>[t.id,i]));
+      const bit=id=>1n<<BigInt(pos.get(id));
+      const target=need.reduce((m,id)=>m^bit(id),0n);
+      const distance=q=>Math.min(Math.hypot(q.x-p.x,q.y-p.y),Math.hypot(q.x-oldSite.x,q.y-oldSite.y));
+      const options=siteData.map(q=>{
+        const touched=triangleData.filter(t=>t.qubits.includes(q.id));
+        return {id:q.id,dist:distance(q),mask:touched.reduce((m,t)=>m^bit(t.id),0n),
+          intersects:touched.some(t=>region.has(t.id)&&all.has(t.id))};
+      }).filter(c=>c.dist<=sCorrectionSearchRadius+1e-7&&c.mask!==0n)
+        .sort((a,b)=>a.dist-b.dist||a.id-b.id);
+      if(!options.length)return {ok:false,note:
+        `No nearby X touches the interface syndrome B${need.join(', B')}. Nothing was committed.`};
+      // Minimum number of Xs first; among those, least total distance to
+      // interface. All solutions must cancel their non-interface flips.
+      const MAX_X=5;
+      let best=null,bestDistance=Infinity,tie=false,bestSize=0;
+      function findCount(count) {
+        let found=false;
+        function recurse(index,remaining,mask,distanceSum,chosen) {
+          if(!remaining) {
+            if(mask!==target)return;
+            found=true;
+            if(distanceSum<bestDistance-1e-7) {
+              best=[...chosen];bestDistance=distanceSum;tie=false;bestSize=count;
+            } else if(Math.abs(distanceSum-bestDistance)<1e-7)tie=true;
+            return;
+          }
+          if(options.length-index<remaining)return;
+          for(let i=index;i<=options.length-remaining;i++) {
+            chosen.push(options[i].id);
+            recurse(i+1,remaining-1,mask^options[i].mask,
+              distanceSum+options[i].dist,chosen);
+            chosen.pop();
+          }
+        }
+        recurse(0,count,0n,0,[]);
+        return found;
+      }
+      for(let count=1;count<=Math.min(MAX_X,options.length);count++)
+        if(findCount(count))break;
+      if(!best)return {ok:false,note:
+        `No local X correction of up to ${MAX_X} qubits cancels interface B${need.join(', B')} while preserving every B_t outside the interface. Nothing was committed.`};
+      if(tie)return {ok:false,note:
+        `There are multiple equally local minimum-${bestSize}-X corrections for interface B${need.join(', B')}. No arbitrary correction was chosen; adjust the junction or use the manual operator tools before starting a new s string.`};
+      const proposed=events.concat(best.map(q=>({type:'X',qubits:[q]})));
+      const post=sTriangleSyndrome(proposed);
+      if(inside.some(t=>post.has(t.id)) || triangleData.some(t=>
+        !region.has(t.id)&&all.has(t.id)!==post.has(t.id)))
+        return {ok:false,note:'Internal correction verification failed: interface remains excited or an outside B_t changed.'};
+      return {ok:true,qubits:best,changedTriangles:need,note:
+        `Interface X(${best.map(q=>'q'+q).join(', ')}) clears B${need.join(', B')} with no change to outside triangles.`};
+    }
+
+    // Finish is the ONLY place where automatic X corrections or endpoint P+
+    // projectors are added. Build the entire new s ribbon first. When the
+    // starting point joins an older ribbon, correct its B_t syndrome and
+    // then project any nontrivial clean star in the LOCAL junction region.
+    // At the NEW final endpoint, skip clean stars already in A_s=+1.
+    // The whole finish operation is committed together in one Undo snapshot.
+    function finishSString() {
+      if(anyonKind!=='s1'&&anyonKind!=='s2')return {ok:true,message:''};
+      const label=anyonName();
+      if(sBasePath.length<2)return {ok:true,message:`${label}: no finished ribbon to project.`};
+      const join=sJoinedInterface();
+      if(join&&!join.ok)return {ok:false,message:join.note};
+      const additions=[],previewEvents=[...operationLog];
+      let correctionText='';
+      if(join){
+        const plan=sInterfaceXPlan(previewEvents,join);
+        if(!plan.ok)return {ok:false,message:`${label}: ${plan.note}`};
+        for(const q of plan.qubits){
+          const ev={type:'X',qubits:[q],source:'guided-s-interface',guideId:sGuideId,
+            autoSemion:true,autoInterface:true,autoInterfaceCorrection:true,
+            interfaceOldGuideId:join.prior.guideId};
+          previewEvents.push(ev);additions.push(ev);
+        }
+        correctionText=plan.note;
+        if(sJunctionTriangles(join).some(t=>sTriangleSyndrome(previewEvents).has(t.id)))
+          return {ok:false,message:`${label}: interface B_t violations remain after correction; no change committed.`};
+      }
+      const initialAnchors=join?[join.start,join.old]:[sBasePath[0]];
+      const first=sCleanEndpointStars(previewEvents,initialAnchors);
+      const last=sCleanEndpointStars(previewEvents,[sBasePath.at(-1)]);
+      // Deduplicate overlap between close start/end regions.
+      const unique=new Set();
+      const selected=[];
+      for(const st of first){unique.add(st.id);selected.push({star:st,position:join?'interface':'initial'});}
+      for(const st of last)if(!unique.has(st.id)){
+        unique.add(st.id);selected.push({star:st,position:'final'});
+      }
+      if(join&&!first.length)return {ok:false,message:
+        `${label}: no complete, triangle-clean star exists at the interface after correction. No gates were committed.`};
+      const results=[];
+      const actuallyProjected=[];
+      try{
+        for(const {star,position} of selected){
+          // Do not project a star which ALREADY has A_s=+1.  Being clean
+          // of B_t flux is necessary, but does not mean it needs a projector.
+          // This removes the extra p=1 projector at the terminal endpoint.
+          if(sProvablyTrivialPlus(star,previewEvents))continue;
+          const current=mainExactStateFor(previewEvents);
+          if(current.dead)return {ok:false,message:
+            `${label}: the pre-projection state has zero norm; no change committed.`};
+          const before=getMainExactEngine().starExpectation(current,star.id);
+          if(!Number.isFinite(before))throw Error(`A${star.id} expectation is undefined`);
+          if(before>1-1e-9)continue;
+          const ev={type:'P',qubits:[],starId:star.id,sign:1,
+            source:position==='interface'?'guided-s-interface':'guided-s',
+            guideId:sGuideId,autoSemion:true,autoInterface:position==='interface',
+            interfaceOldGuideId:position==='interface'?join.prior.guideId:null,
+            autoTrivial:false};
+          previewEvents.push(ev);
+          const outcome=mainExactStateFor(previewEvents);
+          const probability=outcome.projectionLog.at(-1)?.p??0;
+          if(outcome.dead||!(probability>1e-12))return {ok:false,message:
+            `${label}: P+(A${star.id}) at ${position} has zero probability. No X or projectors were committed.`};
+          additions.push(ev);actuallyProjected.push({star,position});
+          results.push(`${position} A${star.id} (p=${probability.toPrecision(5)})`);
+        }
+        // Keep a snapshot even if no projector was eligible: finishing
+        // changes the completed-ribbon registry used to identify later joins.
+        pushHistory(`finishing ${label}: local interface correction and endpoint P+`);
+        for(const ev of additions)operationLog.push({id:nextOperationId++,...ev});
+        mainExactKey=null;mainExactState=null;mainStarExpectationCache.clear();
+        for(const ev of additions)if(ev.type==='X')syncVisibleLocalOp(ev.qubits[0]);
+        sFinishedRibbons.push({guideId:sGuideId,kind:anyonKind,
+          start:sBasePath[0],end:sBasePath.at(-1),
+          startNext:sBasePath[1],endPrev:sBasePath.at(-2),
+          startStarId:actuallyProjected.find(p=>p.position!=='final')?.star.id??null,
+          endStarId:actuallyProjected.find(p=>p.position==='final')?.star.id??null,
+          startStarIds:actuallyProjected.filter(p=>p.position!=='final').map(p=>p.star.id),
+          endStarIds:actuallyProjected.filter(p=>p.position==='final').map(p=>p.star.id)});
+        const nx=additions.filter(ev=>ev.autoInterfaceCorrection).length;
+        const firstCount=actuallyProjected.filter(p=>p.position!=='final').length;
+        const finalCount=actuallyProjected.filter(p=>p.position==='final').length;
+        return {ok:true,message:`${label} completed: ${nx} interface X correction${nx===1?'':'s'}; `+
+          `${firstCount} ${join?'interface':'initial'} P+, ${finalCount} final P+ `+
+          `(${actuallyProjected.length} necessary projections; clean A_s=+1 stars skipped). `+
+          `${results.join('; ')||'No nontrivial local projectors needed.'} ${correctionText}`};
+      }catch(err){return {ok:false,message:
+        `${label}: endpoint postselection failed (${err.message}); no correction or projection was committed.`};}
+    }
+
     function handleSAnyonQubit(siteId) {
       const nextBase=[...sBasePath,siteId];
       const built=buildSSpine(nextBase);
       if(!built){setStatus(`${anyonName()}: this extension cannot form a straight, consistently oriented alternating triangle ribbon.`);return false;}
-      // The first click sets an anchor; operations begin when the first
-      // triangular segment and its orientation have been chosen.
       const cz=built.xIds.length?compileSDecorations(built):[];
       if(cz===null){setStatus(`${anyonName()}: this extension cannot satisfy the joint bulk-star constraints with CZs restricted to ribbon qubits. Choose a different start or use Undo.`);return false;}
-      pushHistory(nextBase.length===1 ? `choosing ${anyonName()} start ${siteId}` : `extending ${anyonName()} to ${siteId}`);
-      // Remove only the *current guide session's* previous compilation.
-      // Never remove a CZ just because another ribbon uses the same pair:
-      // overlapping ribbons must retain their independent physical gates.
-      operationLog=operationLog.filter(ev=>!(ev.source==="guided-s"&&ev.guideId===sGuideId));
+      // Recompile only the current unprojected semion prefix.
+      // Any previous s ribbons and their completed projectors remain.
+      const previous=operationLog.filter(ev=>!(ev.source==="guided-s" && ev.guideId===sGuideId));
+      const nextEvents=sCompiledEvents(built,cz);
+      pushHistory(nextBase.length===1?`choosing ${anyonName()} start ${siteId}`:`extending ${anyonName()} to ${siteId}`);
+      sBasePath=nextBase;anyonQubits=[...nextBase];sGuidedX=built.xIds;sAutoCZ=cz;
+      for(const ev of nextEvents)ev.id=nextOperationId++;
+      operationLog=[...previous,...nextEvents];
+      const join=sJoinedInterface();
+      sInterfaceStatus=join?(join.ok?
+        `Connected to ${join.prior.kind} at q${join.old}; X correction and local P+ will be applied on Finish.`:join.note):"";
       czPairs=operationLog.filter(ev=>ev.type==="CZ").map(ev=>[...ev.qubits]);
-      sBasePath=nextBase;
-      anyonQubits=[...nextBase];
-      sGuidedX=built.xIds;
-      sAutoCZ=cz;
-      for (const [a,b] of cz) {
-        czPairs.push([a,b]);recordOperation("CZ",[a,b],"guided-s",sGuideId);
-      }
-      // Chronology: existing ribbons, then this guide's CZ first, followed
-      // by its R/X operations.  A repeated X, R, or CZ remains in the log
-      // (with its own ID) because it can change the physical combined state.
-      // For XR apply R then X; for RX apply X then R.
-      for (const q of sGuidedX) {
-        const order=built.gateOrder.get(q);
-        if (order==="XR") {
-          recordOperation("R",[q],"guided-s",sGuideId);
-          recordOperation("X",[q],"guided-s",sGuideId);
-        } else if (order==="RX") {
-          recordOperation("X",[q],"guided-s",sGuideId);
-          recordOperation("R",[q],"guided-s",sGuideId);
-        } else {
-          recordOperation("X",[q],"guided-s",sGuideId);
-        }
-        localOps.set(q,"X");
-      }
+      for(const q of sGuidedX)syncVisibleLocalOp(q);
       sCandidateCache=null;
       return true;
     }
@@ -2137,6 +2698,7 @@ def build_interactive_lattice_html(lattice) -> str:
       anyonKind=null;anyonColor=null;anyonQubits=[];
       anyonStarPath=[];mTrianglePath=[];mAutoCZ=[];fZQubits=[];
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sGuideId=null;sCandidateCache=null;
+      sInterfaceStatus = "";
       mOptionCache=null;mGuideId=null;
       mPairColors=[];mPairEdges=[];mPairGuideId=null;mPairBoard=null;mPairOptionCache=null;
       anyonSelect.value="";
@@ -2144,6 +2706,16 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function setAnyon(value) {
+      let finishNote="";
+      if ((anyonKind==="s1" || anyonKind==="s2") && value!==anyonKind) {
+        const finished=finishSString();
+        if (!finished.ok) {
+          anyonSelect.value=anyonKind;
+          setStatus(finished.message);
+          return;
+        }
+        finishNote=finished.message;
+      }
       const match = /^(e|m|f)_([RGB])$/.exec(value);
       const pairMatch = /^(m|f)_([RGB])([RGB])$/.exec(value);
       const validPair = pairMatch && pairMatch[2] !== pairMatch[3];
@@ -2159,6 +2731,7 @@ def build_interactive_lattice_html(lattice) -> str:
       mTrianglePath=[];mAutoCZ=[];mOptionCache=null;
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sCandidateCache=null;
       sGuideId = (anyonKind === "s1" || anyonKind === "s2") ? nextSGuideId++ : null;
+      sInterfaceStatus = "";
       mGuideId = isSingleMagneticGuide() ? nextMGuideId++ : null;
       pendingCZ=null;
       if (zoomMode) setZoomMode(false);
@@ -2184,6 +2757,7 @@ def build_interactive_lattice_html(lattice) -> str:
       } else {
         setStatus("Anyon guide off. Mode: Z.");
       }
+      if (finishNote) setStatus(finishNote + " " + statusDiv.textContent);
     }
 
     function handleEAnyonQubit(siteId) {
@@ -2261,7 +2835,8 @@ def build_interactive_lattice_html(lattice) -> str:
       const next=availableAnyonQubits();
       const pathText=anyonQubits.join(" → ");
       if (anyonKind==="s1" || anyonKind==="s2") {
-        setStatus(`${anyonName()} (${sDirectionLabel()}): ${sBasePath.length} straight-line points, ${sGuidedX.length} X + ${(sBasePath.length>1?sBasePath.length:0)} R + ${sAutoCZ.length} automatic CZ. ${next.length} next step(s). Joint three-color CZ decoration checked against all complete bulk stars; use Violation to inspect the endpoint state.`);
+        const connection=sInterfaceStatus ? ` ${sInterfaceStatus}` : "";
+        setStatus(`${anyonName()} (${sDirectionLabel()}): ${sBasePath.length} spine points, ${sGuidedX.length} X, ${sAutoCZ.length} CZ. On Finish: first clear interface B_t with local X (when joined), then P+ every clean star near the start/interface and final endpoint.${connection} ${next.length} extension(s) available.`);
       } else if (isSingleMagneticGuide()) {
         const n=anyonQubits.length;
         const starCount= n%2===0 && n>1 ? 3:2;
@@ -2514,6 +3089,45 @@ def build_interactive_lattice_html(lattice) -> str:
       return {hits, value:hits.length%2?-1:1, ignored:operationLog.length-hits.length};
     }
 
+    function formatMainValue(value) {
+      if (!Number.isFinite(value)) return "undefined";
+      if (Math.abs(value) < 1e-10) return "0";
+      if (Math.abs(value-1) < 1e-10) return "+1";
+      if (Math.abs(value+1) < 1e-10) return "−1";
+      return value.toFixed(6);
+    }
+
+    function updateProjectorPanel() {
+      const projectors = operationLog.filter(ev => ev.type === "P");
+      if (!projectors.length) {
+        projectorContent.innerHTML = '<span class="expectation-intro">No star projectors have been applied. Select P+ or P- above, then click a complete star.</span>';
+        return;
+      }
+      try {
+        const state = mainExactStateFor();
+        const entries = state.projectionLog;
+        const failedBranch = state.dead
+          ? '<p class="r-error">Warning: the current edited gate sequence contains a zero-probability projection. This postselected state cannot be normalized. Undo the conflicting edit or clear the circuit.</p>'
+          : '';
+        const autoCount=projectors.filter(ev=>ev.autoSemion===true).length;
+        const deterministicCount=projectors.filter(ev=>ev.autoSemion===true&&ev.autoTrivial===true).length;
+        const interfaceCount=projectors.filter(ev=>ev.autoInterface===true).length;
+      const summary=autoCount ? `<p><strong>${autoCount} automatic P+ projection${autoCount===1?"":"s"}</strong> (${interfaceCount} inter-string; ${autoCount-interfaceCount} completed-string endpoints; ${deterministicCount} certified p=1).</p>` : "";
+        const showDetails=projectors.length>24;
+        const html = projectors.map((ev,i) => {
+          const p = entries[i]?.p;
+          const sign = ev.sign === 1 ? "+" : "−";
+          const value = ev.sign === 1 ? "+1" : "−1";
+          const prob = p === undefined ? "unavailable" : (p < 1e-6 ? p.toExponential(4) : p.toFixed(6));
+          const weight = p > 0 ? (1/Math.sqrt(p)).toPrecision(6) : "undefined";
+          return `<div class="projection-entry"><span class="projection-${ev.sign===1?"plus":"minus"}">#${i+1}: P${sign} on A${ev.starId}${ev.autoInterface?" (s interface)":ev.autoSemion?" (s endpoint)":""}</span> (outcome ${value})<div>Conditional probability p = ${prob}; normalization 1/√p = ${weight}</div></div>`;
+        }).join("");
+        projectorContent.innerHTML = failedBranch + summary + (showDetails ? '<details><summary>All individual projections</summary>' + html + '</details>' : html) + '<p class="expectation-note">Each successful projection is normalized before subsequent gates. Probabilities are conditional on earlier postselections. The reference state is the same finite open-patch state used in the R calculation workbench.</p>';
+      } catch (error) {
+        projectorContent.textContent = `Projector calculation unavailable: ${error.message}`;
+      }
+    }
+
     function expectationResultHTML(value) {
       return `<p class="expectation-result ${value===1?"good":"bad"}">⟨${expectationMode==="STAR"?"Aₛ":"Bₜ"}⟩ = ${value===1?"+1":(value===-1?"−1":"0")}</p>`;
     }
@@ -2530,6 +3144,24 @@ def build_interactive_lattice_html(lattice) -> str:
       if (!obj) {
         inspectedObject=null;
         expectationContent.textContent="That star/triangle is outside the complete open-boundary set.";
+        return;
+      }
+      if (isStar && hasMainProjectors()) {
+        // U† A U is NOT sufficient after a non-unitary projector; use the
+        // normalized projected state from the exact symbolic engine instead.
+        try {
+          const value = starExpectation(obj);
+          const steps = operationLog.filter(ev => ev.type === "P")
+            .map(ev => `P${ev.sign===1?"+":"−"}(A${ev.starId})`).join(" → ");
+          expectationContent.innerHTML = `<strong>${obj.color} star A<sub>${obj.id}</sub></strong>
+            <p class="expectation-result">⟨A<sub>${obj.id}</sub>⟩ = ${formatMainValue(value)}</p>
+            <p>The expectation is evaluated in the <strong>normalized postselected state</strong>, not by unitary conjugation alone.</p>
+            <div class="expectation-equation">|ψ'⟩ = P|ψ⟩ / √⟨ψ|P|ψ⟩, &nbsp; P=(I±Aₛ)/2</div>
+            <p>Chronological projector sequence: ${steps}</p>
+            <p class="expectation-note">All intervening X/Z/R/CZ gates are included in the symbolic calculation.</p>`;
+        } catch (error) {
+          expectationContent.textContent = `Postselected star expectation unavailable: ${error.message}`;
+        }
         return;
       }
       if (isStar) {
@@ -2558,7 +3190,7 @@ def build_interactive_lattice_html(lattice) -> str:
           <div class="expectation-qubits">B<sub>${obj.id}</sub> = ${obj.qubits.map(q=>`Z<sub>${q}</sub>`).join(" · ")}</div>
           <div class="expectation-equation">U† B<sub>${obj.id}</sub> U = (−1)<sup>${calc.hits.length}</sup> B<sub>${obj.id}</sub> = ${calc.value===1?"+":"−"}B<sub>${obj.id}</sub></div>
           <details open><summary>Contributing gates (${calc.hits.length})</summary><ol class="expectation-steps">${items||"<li>No X gates on this triangle.</li>"}</ol></details>
-          <p>${calc.ignored} other gate${calc.ignored===1?"":"s"} commute with this B<sub>t</sub> (Z, R, CZ, or X on other qubits).</p>
+          <p>${calc.ignored} other gate${calc.ignored===1?"":"s"} commute with this B<sub>t</sub> (Z, R, CZ, star projectors, or X on other qubits).</p>
           <div class="expectation-equation">⟨Ω|U† B<sub>${obj.id}</sub> U|Ω⟩ = (−1)<sup>${calc.hits.length}</sup> = <b>${calc.value===1?"+1":"−1"}</b></div>`;
       }
     }
@@ -2589,6 +3221,42 @@ def build_interactive_lattice_html(lattice) -> str:
       const panel=expectationPanel.closest(".qubit-panel");
       if (panel) panel.scrollTop=Math.max(0,expectationPanel.offsetTop-panel.offsetTop-10);
       return true;
+    }
+
+    function selectProjectorPoint(x,y) {
+      if (!isProjectorMode()) return false;
+      const eligible = starData.filter(star => polygonContains(x,y,star.inner_qubits));
+      if (!eligible.length) {
+        setStatus("Click inside a complete star hexagon, or its marked center, to project that star.");
+        return false;
+      }
+      eligible.sort((a,b) =>
+        Math.hypot(a.center[0]-x,a.center[1]-y) - Math.hypot(b.center[0]-x,b.center[1]-y));
+      const star = eligible[0];
+      const sign = currentMode === "P_PLUS" ? 1 : -1;
+      const projected = {type:"P",qubits:[],starId:star.id,sign,source:"manual"};
+      try {
+        // Preview the COMPLETE circuit with the proposed measurement before
+        // adding anything to the state or Undo history.
+        const preview = mainExactStateFor([...operationLog, projected]);
+        const p = preview.projectionLog.at(-1)?.p ?? 0;
+        if (preview.dead || !(p > 1e-12)) {
+          setStatus(`Impossible outcome: A${star.id} = ${sign===1?"+1":"−1"} has zero postselection probability. No projector was applied.`);
+          return false;
+        }
+        pushHistory(`postselecting A${star.id} = ${sign===1?"+1":"−1"}`);
+        operationLog.push({id:nextOperationId++, ...projected});
+        // Populate the cache with the already-evaluated normalized state.
+        mainExactKey=mainEventKey(operationLog);
+        mainExactState=preview;
+        mainStarExpectationCache.clear();
+        render();
+        setStatus(`Applied P${sign===1?"+":"-"}=(I${sign===1?"+":"−"}A${star.id})/2. Outcome A${star.id}=${sign===1?"+1":"−1"}; conditional probability ${p.toPrecision(6)}; normalized successfully.`);
+        return true;
+      } catch (error) {
+        setStatus(`Projector could not be evaluated: ${error.message}. No operation was added.`);
+        return false;
+      }
     }
 
     function updateExpectationButtons() {
@@ -2631,6 +3299,18 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function starExpectation(star, events = operationLog) {
+      if (events === operationLog && hasMainProjectors(events)) {
+        const state = mainExactStateFor();
+        if (state.dead) return NaN;
+        if (!mainStarExpectationCache.has(star.id)) {
+          let result = getMainExactEngine().starExpectation(state,star.id);
+          if (Math.abs(result-1)<1e-10) result=1;
+          if (Math.abs(result+1)<1e-10) result=-1;
+          if (Math.abs(result)<1e-10) result=0;
+          mainStarExpectationCache.set(star.id,result);
+        }
+        return mainStarExpectationCache.get(star.id);
+      }
       /*
        * Correct 12-body star operator from Fig. 2:
        *
@@ -2787,7 +3467,7 @@ def build_interactive_lattice_html(lattice) -> str:
           star: star,
           expectation: starExpectation(star),
         }))
-        .filter(item => item.expectation !== 1);
+        .filter(item => !Number.isFinite(item.expectation) || Math.abs(item.expectation-1)>1e-9);
     }
 
     function violatedTriangles() {
@@ -2819,6 +3499,30 @@ def build_interactive_lattice_html(lattice) -> str:
 
     function buildViolationShapes() {
       const shapes = [];
+
+      // Selection outlines only: clicking one of these hexagons triggers
+      // the active +/- projector. Previous projections remain visible.
+      if (isProjectorMode()) {
+        for (const star of starData) {
+          shapes.push({type:"path",path:polygonPath(star.inner_qubits),
+            xref:"x",yref:"y",layer:"above",
+            fillcolor:"rgba(37,99,235,0.018)",
+            line:{color:"rgba(37,99,235,0.32)",width:1,dash:"dot"}});
+        }
+      }
+      if (operatorVisibility.P) {
+        const last=new Map();
+        for (const ev of operationLog) if (ev.type === "P") last.set(ev.starId,ev.sign);
+        for (const [id,sign] of last) {
+          const st=starById.get(id);
+          if(!st)continue;
+          const color=sign===1?"#2563eb":"#d97706";
+          shapes.push({type:"path",path:polygonPath(st.inner_qubits),
+            xref:"x",yref:"y",layer:"above",
+            fillcolor:sign===1?"rgba(37,99,235,0.075)":"rgba(217,119,6,0.09)",
+            line:{color,width:3,dash:"solid"}});
+        }
+      }
 
       if (violationVisibility.STAR) {
         for (const item of violatedStars()) {
@@ -2933,14 +3637,14 @@ def build_interactive_lattice_html(lattice) -> str:
       return { xs, ys };
     }
 
-    function buildCZGeometry() {
+    function buildCZGeometry(pairs = czPairs) {
       const lineX = [];
       const lineY = [];
       const labelX = [];
       const labelY = [];
       const labelText = [];
 
-      for (const [a, b] of czPairs) {
+      for (const [a, b] of pairs) {
         const sa = siteById.get(a);
         const sb = siteById.get(b);
 
@@ -3205,6 +3909,26 @@ def build_interactive_lattice_html(lattice) -> str:
 
       traces.push(...buildMPairGuideTraces());
 
+      if (isProjectorMode()) {
+        traces.push({name:"projection-centers",type:"scatter",mode:"markers",
+          x:starData.map(s=>s.center[0]),y:starData.map(s=>s.center[1]),
+          customdata:starData.map(s=>s.id),
+          marker:{size:13,symbol:"diamond",color:"rgba(37,99,235,0.4)",
+            line:{width:1,color:"#1d4ed8"}},
+          hovertemplate:"<b>Project complete star A%{customdata}</b><extra></extra>",
+          showlegend:false});
+      }
+      if (operatorVisibility.P) {
+        const latest = new Map();
+        for (const ev of operationLog) if (ev.type === "P") latest.set(ev.starId,ev.sign);
+        const used=[...latest].map(([id,sign])=>({star:starById.get(id),sign})).filter(x=>x.star);
+        if (used.length) traces.push({name:"applied-projectors",type:"scatter",mode:"text",
+          x:used.map(x=>x.star.center[0]),y:used.map(x=>x.star.center[1]),
+          text:used.map(x=>x.sign===1?"P+":"P-"),
+          textfont:{size:14,color:"#0f172a",family:"Arial, sans-serif"},
+          textposition:"middle center",hoverinfo:"skip",showlegend:false});
+      }
+
       const layout = {
           // Keep the user's current zoom/pan whenever Plotly.react()
           // is called after X, Z, CZ, Erase, Undo, etc.
@@ -3250,6 +3974,7 @@ def build_interactive_lattice_html(lattice) -> str:
       Plotly.react(plotDiv, traces, layout, config);
       updateTrackedTable();
       updateExpectationPanel();
+      updateProjectorPanel();
     }
 
     function describeConnectedCZs(siteId, pairs) {
@@ -3415,8 +4140,16 @@ def build_interactive_lattice_html(lattice) -> str:
     }
 
     function handleClear() {
-      if (operationLog.length === 0 && czPairs.length === 0 && pendingCZ === null && anyonQubits.length === 0) {
-        setStatus("Nothing to clear.");
+      // Clear affects only the editable Playground. Saved records are kept
+      // unchanged, and the cleared canvas becomes a fresh, unnamed state.
+      const hasOperations = operationLog.length !== 0 || czPairs.length !== 0 ||
+        pendingCZ !== null || anyonQubits.length !== 0 || sFinishedRibbons.length !== 0;
+      if (!hasOperations) {
+        playgroundEditingStateId = null;
+        stateNameInput.value = '';
+        markPlaygroundBaseline();
+        updatePlaygroundStateDropdown(null);
+        setStatus("Playground is already clear. Previously saved states remain available.");
         return;
       }
 
@@ -3426,6 +4159,8 @@ def build_interactive_lattice_html(lattice) -> str:
       czPairs = [];
       pendingCZ = null;
       operationLog = [];
+      sFinishedRibbons = [];
+      sInterfaceStatus = "";
       nextOperationId = 1;
       anyonQubits = [];
       anyonStarPath = [];
@@ -3438,9 +4173,1546 @@ def build_interactive_lattice_html(lattice) -> str:
       sBasePath=[];sGuidedX=[];sAutoCZ=[];sCandidateCache=null;
       sGuideId = (anyonKind === "s1" || anyonKind === "s2") ? nextSGuideId++ : null;
 
+      // Do not keep editing the previously selected saved record. Otherwise
+      // Save state could overwrite the original with this blank canvas.
+      playgroundEditingStateId = null;
+      stateNameInput.value = '';
+      markPlaygroundBaseline();
+      updatePlaygroundStateDropdown(null);
       render();
-      setStatus("Cleared all operations.");
+      setStatus("Cleared Playground. Previously saved states remain available for editing or export.");
     }
+
+    // ====================================================================
+    // Saved-state library and Calculation workspace.
+    // All state data stays within this browser component until downloaded.
+    // A state JSON preserves the chronological circuit, not just plot labels.
+    // ====================================================================
+    const savedStateFormat = 'kagome-saved-state';
+    const savedCollectionFormat = 'kagome-saved-states';
+    const savedStateVersion = 1;
+    const latticeDescriptor = {
+      sites: siteData.map(s => [s.id,s.x,s.y,s.colorName]),
+      starCount: starData.length,
+      triangleCount: triangleData.length
+    };
+    const latticeDescriptorText = JSON.stringify(latticeDescriptor);
+    const storageKey = 'kagome-library-v1-' + siteData.length + '-' +
+      latticeDescriptorText.length + '-' +
+      Array.from(latticeDescriptorText).reduce((h,c) => Math.imul(h ^ c.charCodeAt(0),16777619)>>>0,2166136261).toString(16);
+
+    function deepClone(value) { return JSON.parse(JSON.stringify(value)); }
+    function stateSignature(state) { return JSON.stringify(state); }
+    function markPlaygroundBaseline() { playgroundBaselineSignature = stateSignature(snapshot()); }
+    function playgroundHasUnsavedChanges() { return stateSignature(snapshot()) !== playgroundBaselineSignature; }
+
+    function downloadStateJSON(data, filename) {
+      const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download=filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url),500);
+    }
+    function safeStateFilename(name) {
+      return (name.normalize('NFKC').replace(/[^a-zA-Z0-9._-]+/g,'_')
+        .replace(/^[_ .]+|[_ .]+$/g,'').slice(0,70) || 'kagome_state');
+    }
+    function libraryRecordName(record) {return typeof record?.name==='string' ? record.name.trim() : '';}
+    function stateNamesInclude(name) {
+      return savedStates.some(rec => rec.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+    }
+    function uniqueImportedName(name) {
+      const base = name.slice(0,90); let candidate=base, n=2;
+      while(stateNamesInclude(candidate))candidate=`${base} (import ${n++})`;
+      return candidate;
+    }
+    function newSavedId() {return 'state-' + Date.now() + '-' + nextSavedStateId++;}
+    function validateSavedRecord(record,outerLattice) {
+      if(!record || typeof record!=='object' || Array.isArray(record))throw Error('Invalid state record.');
+      if(JSON.stringify(outerLattice)!==latticeDescriptorText)
+        throw Error('This state belongs to a different Kagome lattice size, site numbering or geometry. Match the Playground lattice before importing.');
+      const name=libraryRecordName(record);
+      if(!name || name.length>100)throw Error('Every state must have a name (maximum 100 characters).');
+      const state=record.state;
+      if(!state || !Array.isArray(state.operationLog) || state.operationLog.length>60000)
+        throw Error('Invalid or oversized operation list in saved state.');
+      const validGates=new Set(['X','Z','R','Rdag','CZ','P']);
+      for(const ev of state.operationLog) {
+        if(!ev || !validGates.has(ev.type) || !Array.isArray(ev.qubits))throw Error(`Invalid gate in state ${name}.`);
+        const arity=ev.type==='CZ'?2:(ev.type==='P'?0:1);
+        if(ev.qubits.length!==arity || ev.qubits.some(q=>!Number.isInteger(q)||!siteById.has(q)))
+          throw Error(`Invalid physical qubits in state ${name}.`);
+        if(ev.type==='CZ' && ev.qubits[0]===ev.qubits[1])throw Error('CZ cannot connect a qubit to itself.');
+        if(ev.type==='P' && (!starById.has(ev.starId) || ![1,-1].includes(ev.sign)))
+          throw Error(`Invalid star postselection in state ${name}.`);
+      }
+      return {id:record.id||newSavedId(),name,savedAt:typeof record.savedAt==='string'?record.savedAt:new Date().toISOString(),
+        state:deepClone(state)};
+    }
+    // Session-only state library. JSON Export is the only durable backup.
+    // Never write user states to browser localStorage or sessionStorage.
+    function persistSavedLibrary() {
+      // Intentionally no-op: savedStates lives only in this page's memory.
+    }
+    function restoreSavedLibrary() {
+      // Remove any state library persisted by a previous version of the app.
+      try { window.localStorage?.removeItem(storageKey); } catch (_) {}
+      savedStates = [];
+      savedOperators = [];
+    }
+    function updatePlaygroundStateDropdown(preferredId=playgroundEditingStateId) {
+      suppressPlaygroundStateChange = true;
+      playgroundStateSelect.innerHTML = '';
+      const newOption = document.createElement('option');
+      newOption.value = '__NEW__';
+      newOption.textContent = 'Create a new state…';
+      playgroundStateSelect.appendChild(newOption);
+      for (const saved of savedStates) {
+        const option = document.createElement('option');
+        option.value = saved.id;
+        option.textContent = saved.name;
+        playgroundStateSelect.appendChild(option);
+      }
+      const chosen = savedStates.some(rec => rec.id === preferredId) ? preferredId : '__NEW__';
+      playgroundStateSelect.value = chosen;
+      suppressPlaygroundStateChange = false;
+    }
+    function updateSavedStateDropdown(preferredId=selectedSavedId) {
+      calculationSelect.innerHTML='';
+      const placeholder=document.createElement('option');
+      placeholder.value='';placeholder.textContent=savedStates.length?'Choose a saved state…':'No saved states yet';
+      calculationSelect.appendChild(placeholder);
+      for(const saved of savedStates) {
+        const option=document.createElement('option');option.value=saved.id;option.textContent=saved.name;
+        calculationSelect.appendChild(option);
+      }
+      selectedSavedId=savedStates.some(rec=>rec.id===preferredId)?preferredId:null;
+      calculationSelect.value=selectedSavedId||'';
+      savedCount.textContent=`${savedStates.length} saved state${savedStates.length===1?'':'s'}`;
+      exportStatesBtn.disabled=!(savedStates.length || savedOperators.length);
+      document.getElementById('calculation-export-btn').disabled=!(savedStates.length || savedOperators.length);
+      updatePlaygroundStateDropdown(playgroundEditingStateId);
+      refreshIPStateDropdowns();
+      refreshSavedOperators();
+      if(activeWorkspaceTab==='calculation')renderSavedCalculation();
+    }
+    function resetPlaygroundEditingSession() {
+      history = [];
+      trackedQubits = [];
+      updateTrackedTable();
+      expectationMode = null;
+      inspectedObject = null;
+      pendingCZ = null;
+    }
+    function loadStateIntoPlayground(stateRecord) {
+      resetPlaygroundEditingSession();
+      restoreState(deepClone(stateRecord.state));
+      playgroundEditingStateId = stateRecord.id;
+      stateNameInput.value = stateRecord.name;
+      markPlaygroundBaseline();
+      updatePlaygroundStateDropdown(playgroundEditingStateId);
+      setStatus(`Loaded “${stateRecord.name}” into Playground for editing.`);
+    }
+    function createNewPlaygroundState() {
+      if (!blankPlaygroundState) blankPlaygroundState = deepClone(snapshot());
+      resetPlaygroundEditingSession();
+      restoreState(deepClone(blankPlaygroundState));
+      playgroundEditingStateId = null;
+      stateNameInput.value = '';
+      markPlaygroundBaseline();
+      updatePlaygroundStateDropdown(null);
+      setStatus('Created a new blank Playground state.');
+    }
+    function saveBeforePlaygroundSwitchIfNeeded() {
+      if (!playgroundHasUnsavedChanges()) return true;
+      const switchWithoutSaving = window.confirm('You have unsaved changes in Playground. Click OK to switch without saving, or Cancel to save the current state first.');
+      if (switchWithoutSaving) return true;
+      return saveNamedState();
+    }
+    function handlePlaygroundStateSelectionChange() {
+      if (suppressPlaygroundStateChange) return;
+      const targetId = playgroundStateSelect.value || '__NEW__';
+      const currentValue = playgroundEditingStateId || '__NEW__';
+      if (targetId === currentValue) return;
+      if (!saveBeforePlaygroundSwitchIfNeeded()) {
+        updatePlaygroundStateDropdown(playgroundEditingStateId);
+        return;
+      }
+      if (targetId === '__NEW__') {
+        createNewPlaygroundState();
+        return;
+      }
+      const record = savedStates.find(rec => rec.id === targetId);
+      if (!record) {
+        updatePlaygroundStateDropdown(playgroundEditingStateId);
+        setStatus('That saved state is no longer available.');
+        return;
+      }
+      loadStateIntoPlayground(record);
+    }
+
+    function changeWorkspaceTab(which) {
+      activeWorkspaceTab=which;
+      const playground=which==='playground';
+      playgroundTab.hidden=!playground;
+      calculationTab.hidden=playground;
+      playgroundTabBtn.classList.toggle('active',playground);
+      calculationTabBtn.classList.toggle('active',!playground);
+      playgroundTabBtn.setAttribute('aria-selected',String(playground));
+      calculationTabBtn.setAttribute('aria-selected',String(!playground));
+      if(!playground)requestAnimationFrame(renderSavedCalculation);
+      else requestAnimationFrame(()=>Plotly.Plots?.resize?.(plotDiv));
+    }
+    function formatSavedEvent(ev) {
+      const ids=(ev.qubits||[]).map(q=>'q'+q).join(', ');
+      if(ev.type==='P')return `P${ev.sign===1?'+':'−'} on star A${ev.starId}${ev.autoSemion?' (automatic s)':''}`;
+      if(ev.type==='CZ')return `CZ(${ids})`;
+      return `${ev.type}(${ids})${ev.autoInterfaceCorrection?' (interface correction)':''}`;
+    }
+    // ====================================================================
+    // Calculation operator designer: a symbolic expression ONLY.
+    // All NEW drafts are entered in mathematical left-to-right order.
+    // Legacy chronological saved products are reversed once when imported,
+    // preserving their original operator, including noncommuting factors.
+    // No commuting, cancellation, postselection or normalization occurs here.
+    // ====================================================================
+    function newOperatorId() { return 'operator-' + Date.now() + '-' + nextSavedOperatorId++; }
+    function operatorDraftSignature() {
+      return JSON.stringify({name:operatorNameInput.value.trim(),operators:operatorDraft});
+    }
+    function operatorDraftIsDirty() { return operatorDraftSignature() !== operatorDraftBaseline; }
+    function operatorCanvasReady() {
+      return activeWorkspaceTab === 'calculation' && savedStates.some(rec => rec.id === selectedSavedId);
+    }
+    function validateDesignedOperator(ev) {
+      if (!ev || typeof ev !== 'object' || Array.isArray(ev)) throw Error('Invalid proposed operator.');
+      const kind=ev.type, qubits=ev.qubits;
+      if (!['X','Y','Z','R','CZ','P','A','B','I','PLUS','MINUS','SCALAR','DIVIDE','LPAREN','RPAREN'].includes(kind) || !Array.isArray(qubits))
+        throw Error('Unknown proposed operator type.');
+      const arity=kind==='CZ'?2:(['X','Y','Z','R'].includes(kind)?1:0);
+      if (qubits.length!==arity || qubits.some(q=>!Number.isInteger(q)||!siteById.has(q)))
+        throw Error('Invalid operator qubit IDs.');
+      const result={type:kind,qubits:[...qubits]};
+      if (kind==='SCALAR'||kind==='DIVIDE') {
+        result.value=canonicalOperatorScalar(ev.value);
+        if(kind==='DIVIDE'&&Number(result.value)===0) throw Error('Division by zero is not allowed.');
+      }
+      if (kind==='CZ' && qubits[0]===qubits[1]) throw Error('CZ requires two distinct qubits.');
+      if (kind==='P' || kind==='A') {
+        if (!Number.isInteger(ev.starId) || !starById.has(ev.starId)) throw Error('Invalid complete star ID.');
+        result.starId=ev.starId;
+      }
+      if (kind==='P') {
+        if (![1,-1].includes(ev.sign)) throw Error('Projector sign must be +1 or −1.');
+        result.sign=ev.sign;
+      }
+      if (kind==='B') {
+        if (!Number.isInteger(ev.triangleId) || !triangleById.has(ev.triangleId)) throw Error('Invalid complete triangle ID.');
+        result.triangleId=ev.triangleId;
+      }
+      return result;
+    }
+    function validateOperatorRecord(rec) {
+      if (!rec || typeof rec !== 'object' || Array.isArray(rec)) throw Error('Invalid operator combination record.');
+      const name=typeof rec.name==='string'?rec.name.trim():'';
+      if (!name || name.length>100) throw Error('Operator combinations need a name of 1–100 characters.');
+      if (!Array.isArray(rec.operators) || !rec.operators.length || rec.operators.length>2000)
+        throw Error('An operator expression must contain 1–2,000 tokens.');
+      if (rec.order!==undefined && !['chronological','expression'].includes(rec.order))
+        throw Error('Unsupported operator ordering.');
+      if (rec.expressionVersion!==undefined && rec.expressionVersion!==1)
+        throw Error('Unsupported operator-expression version.');
+      let operators=rec.operators.map(validateDesignedOperator);
+      if(rec.order!=='expression') {
+        // Older JSON files store the first-acting gate first. Do not reverse
+        // expression tokens or reinterpret old noncommuting products.
+        if(operators.some(ev=>!['X','Y','Z','R','CZ','P','A','B'].includes(ev.type)))
+          throw Error('Algebraic tokens require order="expression".');
+        operators.reverse();
+      }
+      const check=inspectOperatorExpression(operators);
+      if(!check.valid||!check.complete) throw Error('Invalid operator expression: '+check.message);
+      return {id:typeof rec.id==='string'?rec.id:newOperatorId(),name,
+        savedAt:typeof rec.savedAt==='string'?rec.savedAt:new Date().toISOString(),
+        order:'expression',expressionVersion:1,operators};
+    }
+    function uniqueImportedOperatorName(name) {
+      const base=name.slice(0,85);let result=base,n=2;
+      while(savedOperators.some(rec=>rec.name.toLocaleLowerCase()===result.toLocaleLowerCase()))
+        result=`${base} (import ${n++})`;
+      return result;
+    }
+    function formatDesignedOperator(ev) {
+      if(ev.type==='I') return 'I';
+      if(ev.type==='SCALAR') return ev.value;
+      if(ev.type==='DIVIDE') return '/ '+ev.value;
+      const punctuation={PLUS:'+',MINUS:'−',LPAREN:'(',RPAREN:')'};
+      if(punctuation[ev.type]) return punctuation[ev.type];
+      if (ev.type==='P') return `P${ev.sign===1?'+':'−'}(A${ev.starId})`;
+      if (ev.type==='A') return `Aₛ(${ev.starId})`;
+      if (ev.type==='B') return `Bₜ(${ev.triangleId})`;
+      return `${ev.type}(${ev.qubits.map(q=>'q'+q).join(', ')})`;
+    }
+    function showOperatorDesignerMessage(message) {
+      operatorDesignerStatus.textContent=message;
+      operatorDesignerStatus.hidden=false;
+    }
+    function designedOperatorTeX(ev) {
+      if(ev.type==='I') return 'I';
+      if(ev.type==='SCALAR') return operatorScalarTeX(ev.value);
+      if(ev.type==='DIVIDE') return '/ '+operatorScalarTeX(ev.value);
+      const punctuation={PLUS:'+',MINUS:'-',LPAREN:'(',RPAREN:')'};
+      if(punctuation[ev.type]) return punctuation[ev.type];
+      if (ev.type==='P') return `P^{${ev.sign===1?'+':'-'}}_{s${ev.starId}}`;
+      if (ev.type==='A') return `A_{s${ev.starId}}`;
+      if (ev.type==='B') return `B_{t${ev.triangleId}}`;
+      const symbol=ev.type==='CZ'?'\\mathrm{CZ}':ev.type;
+      return `${symbol}_{${ev.qubits.map(q=>'q'+q).join(',')}}`;
+    }
+    // Expression tokens are written LEFT TO RIGHT.  This is a mathematical
+    // expression, not a chronological preparation circuit.  No token acts on
+    // a saved state; keep this subsystem separate from RSymbolicEngine.
+    function canonicalOperatorScalar(value) {
+      if (typeof value !== 'string' && typeof value !== 'number')
+        throw Error('Enter a real number, for example 3, -0.5 or 1e-3.');
+      let text=String(value).trim().replace(/\u2212/g,'-');
+      if (!text || text.length>40 || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text))
+        throw Error('Enter a real number, for example 3, -0.5 or 1e-3.');
+      const number=Number(text);
+      if (!Number.isFinite(number)) throw Error('The scalar must be finite.');
+      const mantissa=text.split(/[eE]/)[0];
+      if (number===0 && /[1-9]/.test(mantissa))
+        throw Error('This scalar is too small to represent. Use a larger magnitude.');
+      if (number===0) return '0';
+      // Retain the decimal digits supplied by the user rather than rounding
+      // them through Number.toString(). Never evaluate user-entered code.
+      text=text.replace(/^\+/,'').replace(/^(-?)\./,(_,sign)=>sign+'0.').replace('E','e');
+      let [m,e]=text.split('e');
+      if (m.endsWith('.')) m=m.slice(0,-1);
+      m=m.replace(/^(-?)0+(?=\d)/,'$1');
+      if (e!==undefined) e=String(Number(e));
+      return m+(e!==undefined?'e'+e:'');
+    }
+    function operatorTokenIsFactor(type) {
+      return ['X','Y','Z','R','CZ','P','A','B','I','SCALAR','LPAREN'].includes(type);
+    }
+    function inspectOperatorExpression(tokens) {
+      if (!Array.isArray(tokens) || tokens.length>2000)
+        return {valid:false,complete:false,message:'An expression may contain at most 2,000 tokens.'};
+      if (!tokens.length) return {valid:true,complete:false,message:'Add I, a scalar, or an operator first.'};
+      let depth=0,expectFactor=true;
+      for (const token of tokens) {
+        const type=token.type;
+        if (type==='LPAREN') {
+          if (++depth>64) return {valid:false,complete:false,message:'At most 64 nested bracket pairs are supported.'};
+          expectFactor=true;
+        } else if (type==='RPAREN') {
+          if (!depth) return {valid:false,complete:false,message:'There is no opening bracket to close.'};
+          if (expectFactor) return {valid:false,complete:false,message:'Complete the term before closing its bracket.'};
+          depth--;expectFactor=false;
+        } else if (type==='PLUS'||type==='MINUS') {
+          // At the beginning of a term + and - are unary signs; otherwise
+          // they separate terms. Preserve them, without simplifying signs.
+          expectFactor=true;
+        } else if (type==='DIVIDE') {
+          if (expectFactor) return {valid:false,complete:false,message:'Add an operator, scalar, or closed bracket before dividing.'};
+          if (Number(token.value)===0) return {valid:false,complete:false,message:'Division by zero is not allowed.'};
+        } else if (operatorTokenIsFactor(type)) {
+          expectFactor=false;
+        } else return {valid:false,complete:false,message:'Unknown expression token.'};
+      }
+      if (expectFactor) return {valid:true,complete:false,message:'Complete the unfinished term before saving.'};
+      if (depth) return {valid:true,complete:false,message:`Close ${depth} remaining bracket${depth===1?'':'s'} before saving.`};
+      try {return {valid:true,complete:true,ast:parseOperatorExpression(tokens),message:''};}
+      catch(error) {return {valid:false,complete:false,message:error.message};}
+    }
+    function parseOperatorExpression(tokens) {
+      let pos=0;
+      function node(kind,fields={},children=[]) {
+        const depth=1+children.reduce((m,c)=>Math.max(m,c.depth||1),0);
+        if(depth>64) throw Error('Expression nesting is too deep (64 levels maximum).');
+        return {kind,...fields,depth};
+      }
+      function product(factors) {
+        return factors.length===1?factors[0]:node('product',{factors},factors);
+      }
+      function atom() {
+        const ev=tokens[pos++];
+        if(!ev) throw Error('An operator or scalar is missing.');
+        if(ev.type==='LPAREN') {
+          const child=sum();
+          if(tokens[pos]?.type!=='RPAREN') throw Error('A closing bracket is missing.');
+          pos++;return node('group',{child},[child]);
+        }
+        if(ev.type==='SCALAR') return node('scalar',{value:ev.value});
+        if(operatorTokenIsFactor(ev.type)) return node('atom',{event:ev});
+        throw Error('Expected an operator, scalar, or opening bracket.');
+      }
+      function signedFactor() {
+        const signs=[];
+        while(['PLUS','MINUS'].includes(tokens[pos]?.type)) signs.push(tokens[pos++].type==='PLUS'?'+':'-');
+        const child=atom();
+        return signs.length?node('signed',{signs,child},[child]):child;
+      }
+      function term() {
+        let factors=[signedFactor()];
+        for(;;) {
+          if(tokens[pos]?.type==='DIVIDE') {
+            const numerator=product(factors),value=tokens[pos++].value;
+            factors=[node('divide',{numerator,value},[numerator])];
+          } else if(operatorTokenIsFactor(tokens[pos]?.type)) factors.push(signedFactor());
+          else break;
+        }
+        return product(factors);
+      }
+      function sum() {
+        const terms=[term()],signs=[];
+        while(['PLUS','MINUS'].includes(tokens[pos]?.type)) {
+          signs.push(tokens[pos++].type==='PLUS'?'+':'-');terms.push(term());
+        }
+        return terms.length===1?terms[0]:node('sum',{terms,signs},terms);
+      }
+      const ast=sum();
+      if(pos!==tokens.length) throw Error('Unexpected closing bracket or incomplete expression.');
+      return ast;
+    }
+    function operatorScalarTeX(value) {
+      const [mantissa,exponent]=value.split('e');
+      return exponent===undefined?mantissa:`${mantissa}\\times 10^{${exponent}}`;
+    }
+    function operatorExpressionTeX(ast) {
+      if(ast.kind==='atom') return designedOperatorTeX(ast.event);
+      if(ast.kind==='scalar') return operatorScalarTeX(ast.value);
+      if(ast.kind==='group') return `\\left(${operatorExpressionTeX(ast.child)}\\right)`;
+      if(ast.kind==='signed') return ast.signs.join('')+operatorExpressionTeX(ast.child);
+      if(ast.kind==='sum') return ast.terms.map((t,i)=>(i?' '+ast.signs[i-1]+' ':'')+operatorExpressionTeX(t)).join('');
+      if(ast.kind==='divide') {
+        // The fraction bar already groups the numerator; do not show a
+        // redundant outer bracket, but retain all grouping in the tokens.
+        const numerator=ast.numerator.kind==='group'?ast.numerator.child:ast.numerator;
+        return `\\frac{${operatorExpressionTeX(numerator)}}{${operatorScalarTeX(ast.value)}}`;
+      }
+      if(ast.kind==='product') return ast.factors.map((f,i)=>{
+        let text=operatorExpressionTeX(f);
+        if(f.kind==='scalar'&&(f.value.startsWith('-')||f.value.includes('e')))
+          text=`\\left(${text}\\right)`;
+        return (i?(f.kind==='scalar'?'\\cdot ':'\\, '):'')+text;
+      }).join('');
+      throw Error('Unknown expression node.');
+    }
+    function appendOperatorExpressionToken(ev) {
+      if (!operatorCanvasReady()) return false;
+      if (operatorPendingCZ!==null) {
+        showOperatorDesignerMessage('Finish or cancel the pending CZ before adding expression symbols.');return false;
+      }
+      if (operatorDraft.length>=2000) {
+        showOperatorDesignerMessage('This expression has reached the 2,000-token limit.');return false;
+      }
+      let token;
+      try {token=validateDesignedOperator(ev);}
+      catch(error) {showOperatorDesignerMessage(error.message);return false;}
+      const next=[...operatorDraft,token],check=inspectOperatorExpression(next);
+      if(!check.valid) {showOperatorDesignerMessage(check.message);return false;}
+      operatorDraft=next;
+      // Algebra symbols are one-shot entries, not placement modes.
+      if (['I','PLUS','MINUS','LPAREN','RPAREN','SCALAR','DIVIDE'].includes(token.type)) operatorDesignMode=null;
+      renderSavedCalculation();return true;
+    }
+    function chooseExpressionSymbol(symbol) {
+      if(!operatorCanvasReady()) return;
+      if(operatorPendingCZ!==null) {
+        showOperatorDesignerMessage('Finish or cancel the pending CZ before adding expression symbols.');return;
+      }
+      if(symbol==='TIMES'||symbol==='DIVIDE') {
+        if(symbol==='DIVIDE') {
+          const check=inspectOperatorExpression([...operatorDraft,{type:'DIVIDE',qubits:[],value:'1'}]);
+          if(!check.valid) {showOperatorDesignerMessage(check.message);return;}
+        }
+        operatorScalarAction=symbol;
+        operatorScalarTitle.textContent=symbol==='TIMES'?'Multiply by a scalar':'Divide by a scalar';
+        operatorScalarInput.value='';operatorScalarInput.placeholder=symbol==='TIMES'?'e.g. 3':'e.g. 2';
+        operatorScalarError.textContent='';
+        operatorScalarDialog.showModal();operatorScalarInput.focus();
+        return;
+      }
+      appendOperatorExpressionToken({type:symbol,qubits:[]});
+    }
+    function submitOperatorScalar(event) {
+      event.preventDefault();
+      if(!operatorScalarAction) return;
+      let value;
+      try {
+        value=canonicalOperatorScalar(operatorScalarInput.value);
+        if(operatorScalarAction==='DIVIDE'&&Number(value)===0) throw Error('Division by zero is not allowed.');
+      } catch(error) {operatorScalarError.textContent=error.message;operatorScalarInput.focus();return;}
+      const token={type:operatorScalarAction==='TIMES'?'SCALAR':'DIVIDE',qubits:[],value};
+      if(appendOperatorExpressionToken(token)) operatorScalarDialog.close();
+      else operatorScalarError.textContent=operatorDesignerStatus.textContent;
+    }
+    function renderDesignedOperatorEquation(tokens=operatorDraft, target=operatorProduct) {
+      const check=inspectOperatorExpression(tokens);
+      const tex='O = '+(!tokens.length?'I':check.complete
+        ?operatorExpressionTeX(check.ast):tokens.map(designedOperatorTeX).join(' '));
+      if (target.dataset.tex===tex && target.firstElementChild) return;
+      const ns='http://www.w3.org/1998/Math/MathML';
+      function element(tag,text=null,attributes={}) {
+        const node=document.createElementNS(ns,tag);
+        if (text!==null) node.textContent=String(text);
+        for (const [key,value] of Object.entries(attributes)) node.setAttribute(key,String(value));
+        return node;
+      }
+      function index(prefix,id) {
+        const row=element('mrow');row.append(element('mi',prefix),element('mn',id));return row;
+      }
+      function scalar(value) {
+        const row=element('mrow');
+        let [mantissa,exponent]=value.split('e');
+        if(mantissa.startsWith('-')) {row.append(element('mo','−'));mantissa=mantissa.slice(1);}
+        row.append(element('mn',mantissa));
+        if(exponent!==undefined) {
+          const power=element('msup');power.append(element('mn','10'),scalar(exponent));
+          row.append(element('mo','×'),power);
+        }
+        return row;
+      }
+      function bracket(child) {
+        const row=element('mrow');row.append(element('mo','(',{stretchy:'true'}),child,element('mo',')',{stretchy:'true'}));return row;
+      }
+      function factor(ev) {
+        if(ev.type==='I') return element('mi','I',{mathvariant:'normal'});
+        if(ev.type==='SCALAR') return scalar(ev.value);
+        if(ev.type==='DIVIDE') {
+          const row=element('mrow');row.append(element('mo','/'),scalar(ev.value));return row;
+        }
+        const punctuation={PLUS:'+',MINUS:'−',LPAREN:'(',RPAREN:')'};
+        if(punctuation[ev.type]) return element('mo',punctuation[ev.type]);
+        let sub;
+        if (ev.type==='P'||ev.type==='A') sub=index('s',ev.starId);
+        else if (ev.type==='B') sub=index('t',ev.triangleId);
+        else {
+          sub=element('mrow');
+          ev.qubits.forEach((q,i)=>{
+            if (i) sub.append(element('mo',','));
+            sub.append(index('q',q));
+          });
+        }
+        const symbol=element('mi',ev.type,ev.type==='CZ'?{mathvariant:'normal'}:{});
+        const result=element(ev.type==='P'?'msubsup':'msub');
+        result.append(symbol,sub);
+        if (ev.type==='P') result.append(element('mo',ev.sign===1?'+':'−'));
+        return result;
+      }
+      function expression(ast) {
+        if(ast.kind==='atom') return factor(ast.event);
+        if(ast.kind==='scalar') return scalar(ast.value);
+        if(ast.kind==='group') return bracket(expression(ast.child));
+        if(ast.kind==='signed') {
+          const row=element('mrow');
+          for(const sign of ast.signs)row.append(element('mo',sign==='-'?'−':'+'));
+          row.append(expression(ast.child));return row;
+        }
+        if(ast.kind==='sum') {
+          const row=element('mrow');
+          ast.terms.forEach((t,i)=>{if(i)row.append(element('mo',ast.signs[i-1]==='-'?'−':'+'));row.append(expression(t));});
+          return row;
+        }
+        if(ast.kind==='divide') {
+          const frac=element('mfrac');
+          const numerator=ast.numerator.kind==='group'?ast.numerator.child:ast.numerator;
+          frac.append(expression(numerator),scalar(ast.value));return frac;
+        }
+        const row=element('mrow');
+        ast.factors.forEach((f,i)=>{
+          if(i)row.append(f.kind==='scalar'?element('mo','·'):element('mspace',null,{width:'0.22em'}));
+          let child=expression(f);
+          if(f.kind==='scalar'&&(f.value.startsWith('-')||f.value.includes('e')))child=bracket(child);
+          row.append(child);
+        });
+        return row;
+      }
+      const math=element('math',null,{display:'inline',displaystyle:'true'});
+      const semantics=element('semantics');
+      const row=element('mrow');row.append(element('mi','O'),element('mo','='));
+      if (!tokens.length) row.append(element('mi','I',{mathvariant:'normal'}));
+      else if(check.complete)row.append(expression(check.ast));
+      else tokens.forEach((ev,i)=>{
+        if (i && operatorTokenIsFactor(ev.type)) row.append(element('mspace',null,{width:'0.22em'}));
+        row.append(factor(ev));
+      });
+      semantics.append(row,element('annotation',tex,{encoding:'application/x-tex'}));
+      math.append(semantics);
+      target.replaceChildren(math);
+      target.dataset.tex=tex;
+    }
+    function updateOperatorDesignerUI() {
+      const ready=savedStates.some(rec=>rec.id===selectedSavedId);
+      for (const btn of designerModeButtons) {
+        const on=btn.dataset.designerMode===operatorDesignMode;
+        btn.classList.toggle('active',on);btn.setAttribute('aria-pressed',String(on));
+        const mode=btn.dataset.designerMode;
+        btn.disabled=!ready || (['A','P_PLUS','P_MINUS'].includes(mode)&&!starData.length) || (mode==='B'&&!triangleData.length);
+      }
+      const expressionCheck=inspectOperatorExpression(operatorDraft);
+      for(const btn of designerExpressionButtons) btn.disabled=!ready || operatorPendingCZ!==null;
+      saveOperatorsBtn.disabled=!expressionCheck.valid || !expressionCheck.complete || operatorPendingCZ!==null;
+      saveOperatorsBtn.title=operatorPendingCZ!==null?'Finish or cancel the pending CZ first.':expressionCheck.complete?'Save this mathematical expression.':expressionCheck.message;
+      operatorUndoBtn.disabled=!operatorDraft.length && operatorPendingCZ===null;
+      operatorClearBtn.disabled=!operatorDraft.length && operatorPendingCZ===null && !operatorNameInput.value && !operatorEditingId;
+      operatorDesignerStatus.hidden=true;
+      renderDesignedOperatorEquation();
+    }
+    function refreshSavedOperators() {
+      savedOperatorsSelect.textContent='';
+      const empty=document.createElement('option');empty.value='';empty.textContent='New combination…';
+      savedOperatorsSelect.appendChild(empty);
+      for(const rec of savedOperators) {
+        const option=document.createElement('option');option.value=rec.id;option.textContent=rec.name;
+        savedOperatorsSelect.appendChild(option);
+      }
+      savedOperatorsSelect.value=savedOperators.some(rec=>rec.id===operatorEditingId)?operatorEditingId:'';
+      operatorSavedCount.textContent=`${savedOperators.length} operator combination${savedOperators.length===1?'':'s'} saved`;
+      exportStatesBtn.disabled=!(savedStates.length||savedOperators.length);
+      document.getElementById('calculation-export-btn').disabled=exportStatesBtn.disabled;
+      updateOperatorDesignerUI();
+      refreshIPOperatorDropdown();
+    }
+    function chooseOperatorMode(mode) {
+      if (!operatorCanvasReady()) return;
+      operatorDesignMode=operatorDesignMode===mode?null:mode;
+      operatorPendingCZ=null;
+      renderSavedCalculation();
+    }
+    function appendDesignedOperator(ev) {
+      return appendOperatorExpressionToken(ev);
+    }
+    function designOperatorOnQubit(id) {
+      if (!operatorCanvasReady() || !siteById.has(id)) return false;
+      if (['X','Y','Z','R'].includes(operatorDesignMode))
+        return appendDesignedOperator({type:operatorDesignMode,qubits:[id]});
+      if (operatorDesignMode!=='CZ') return false;
+      if (operatorPendingCZ===null) {
+        operatorPendingCZ=id;
+      } else if (operatorPendingCZ===id) {
+        operatorPendingCZ=null;
+      } else {
+        const a=operatorPendingCZ;operatorPendingCZ=null;
+        return appendDesignedOperator({type:'CZ',qubits:[a,id]});
+      }
+      renderSavedCalculation();return true;
+    }
+    function designOperatorOnStar(id) {
+      if (!operatorCanvasReady() || !starById.has(id)) return false;
+      if (operatorDesignMode==='A') return appendDesignedOperator({type:'A',qubits:[],starId:id});
+      if (operatorDesignMode==='P_PLUS'||operatorDesignMode==='P_MINUS')
+        return appendDesignedOperator({type:'P',qubits:[],starId:id,sign:operatorDesignMode==='P_PLUS'?1:-1});
+      return false;
+    }
+    function designOperatorOnTriangle(id) {
+      return operatorDesignMode==='B' && triangleById.has(id)
+        ? appendDesignedOperator({type:'B',qubits:[],triangleId:id}) : false;
+    }
+    function undoDesignedOperator() {
+      if (operatorPendingCZ!==null) operatorPendingCZ=null;
+      else if (operatorDraft.length) operatorDraft.pop();
+      updateOperatorDesignerUI();renderSavedCalculation();
+    }
+    function resetOperatorDraft() {
+      operatorDraft=[];operatorPendingCZ=null;operatorDesignMode=null;operatorEditingId=null;operatorNameInput.value='';
+      operatorDraftBaseline=operatorDraftSignature();
+      refreshSavedOperators();renderSavedCalculation();
+    }
+    function clearOperatorDraft() {
+      if (operatorDraftIsDirty() && !window.confirm('Discard this unsaved operator draft? Saved combinations and quantum states will not be changed.')) return;
+      resetOperatorDraft();
+    }
+    function loadDesignedOperators() {
+      const target=savedOperatorsSelect.value;
+      if (target===operatorEditingId) return;
+      if (operatorDraftIsDirty() && !window.confirm('Discard unsaved operator edits and load this combination? Cancel to keep editing.')) {
+        savedOperatorsSelect.value=operatorEditingId||'';return;
+      }
+      if (!target) {resetOperatorDraft();return;}
+      const rec=savedOperators.find(r=>r.id===target);
+      if (!rec) {refreshSavedOperators();return;}
+      operatorDraft=validateOperatorRecord(rec).operators;
+      operatorPendingCZ=null;operatorEditingId=rec.id;operatorNameInput.value=rec.name;
+      operatorDraftBaseline=operatorDraftSignature();
+      refreshSavedOperators();renderSavedCalculation();
+    }
+    function saveDesignedOperators() {
+      const name=operatorNameInput.value.trim();
+      if (!name || name.length>100) {operatorNameInput.focus();showOperatorDesignerMessage('Enter an operator name (1–100 characters).');return false;}
+      if (!operatorDraft.length) {showOperatorDesignerMessage('Add I, a scalar, or an operator first.');return false;}
+      if (operatorPendingCZ!==null) {showOperatorDesignerMessage('Finish or cancel the pending CZ before saving.');return false;}
+      const expressionCheck=inspectOperatorExpression(operatorDraft);
+      if(!expressionCheck.valid||!expressionCheck.complete) {showOperatorDesignerMessage(expressionCheck.message);return false;}
+      const editing=savedOperators.find(rec=>rec.id===operatorEditingId);
+      const overwrite=editing && editing.name.toLocaleLowerCase()===name.toLocaleLowerCase();
+      if (savedOperators.some(rec=>rec.name.toLocaleLowerCase()===name.toLocaleLowerCase() && (!overwrite || rec.id!==editing.id))) {
+        operatorNameInput.focus();showOperatorDesignerMessage('That operator name is already saved. Load it to edit, or use a different name.');return false;
+      }
+      const rec=validateOperatorRecord({id:overwrite?editing.id:newOperatorId(),name,savedAt:new Date().toISOString(),order:'expression',expressionVersion:1,operators:operatorDraft});
+      if (overwrite) savedOperators[savedOperators.indexOf(editing)]=rec;
+      else savedOperators.push(rec);
+      operatorEditingId=rec.id;operatorNameInput.value=rec.name;
+      operatorDraftBaseline=operatorDraftSignature();refreshSavedOperators();
+      return true;
+    }
+    // The two B_t triangles in a cell may have exactly the same centroid.
+    // Put their click targets inside different triangle lobes, not on top of
+    // one another, so a B_t selection always has an unambiguous triangle ID.
+    function operatorTriangleTarget(t) {
+      const v=siteById.get(t.qubits[0]);
+      return [t.center[0]+.65*(v.x-t.center[0]),t.center[1]+.65*(v.y-t.center[1])];
+    }
+    function buildOperatorDesignerOverlay() {
+      const traces=[],shapes=[],ink='#0f766e';
+      const sites=new Map(),stars=new Map(),triangles=new Map();
+      function add(map,id,text) {if(!map.has(id))map.set(id,[]);map.get(id).push(text);}
+      operatorDraft.filter(ev=>['X','Y','Z','R','CZ','P','A','B'].includes(ev.type)).forEach((ev,i)=>{
+        const label=`#${i+1} ${ev.type==='P'?(ev.sign===1?'P+':'P−'):ev.type==='A'?'Aₛ':ev.type==='B'?'Bₜ':ev.type}`;
+        if (['X','Y','Z','R'].includes(ev.type)) add(sites,ev.qubits[0],label);
+        else if (ev.type==='A'||ev.type==='P') add(stars,ev.starId,label);
+        else if (ev.type==='B') add(triangles,ev.triangleId,label);
+        else if (ev.type==='CZ') {
+          const a=siteById.get(ev.qubits[0]),b=siteById.get(ev.qubits[1]);
+          const cx=(a.x+b.x)/2,cy=(a.y+b.y)/2-Math.max(.5,.15*Math.hypot(a.x-b.x,a.y-b.y))-.10*(i%3);
+          const curve=quadraticBezierPoints(a.x,a.y,b.x,b.y,cx,cy,33);
+          traces.push({name:'operator-design-cz',type:'scatter',mode:'lines',x:curve.xs,y:curve.ys,
+            line:{color:ink,width:3,dash:'dash'},text:`${label} (${ev.qubits.map(q=>'q'+q).join(', ')})`,hoverinfo:'text',showlegend:false});
+          traces.push({name:'operator-design-cz-label',type:'scatter',mode:'text',x:[curve.xs[16]],y:[curve.ys[16]-.15],
+            text:[label],textfont:{size:13,color:ink},hoverinfo:'skip',showlegend:false});
+        }
+      });
+      const selectedSites=[...sites].map(([id,text])=>({id,p:siteById.get(id),text:text.join(' · ')}));
+      traces.push({name:'operator-design-qubits',type:'scatter',mode:'markers+text',
+        x:selectedSites.map(v=>v.p.x),y:selectedSites.map(v=>v.p.y),customdata:selectedSites.map(v=>v.id),
+        text:selectedSites.map(v=>v.text),textposition:'bottom left',textfont:{size:13,color:ink},
+        marker:{size:24,symbol:'circle-open',color:ink,line:{width:2}},hovertemplate:'Operator draft on q%{customdata}<br>%{text}<extra></extra>',showlegend:false});
+      for(const [kind,collection,byId] of [['star',stars,starById],['triangle',triangles,triangleById]]) {
+        const objects=[...collection].map(([id,labels])=>({obj:byId.get(id),labels:labels.join(' · ')}));
+        for(const v of objects) shapes.push({type:'path',path:polygonPath(kind==='star'?v.obj.inner_qubits:v.obj.qubits),
+          xref:'x',yref:'y',layer:'below',fillcolor:'rgba(13,148,136,.07)',line:{color:ink,width:2,dash:'dash'}});
+        const point=v=>kind==='star'?[v.obj.center[0],v.obj.center[1]-.30]:operatorTriangleTarget(v.obj);
+        traces.push({name:'operator-design-'+kind+'-labels',type:'scatter',mode:'text',
+          x:objects.map(v=>point(v)[0]),y:objects.map(v=>point(v)[1]),customdata:objects.map(v=>v.obj.id),
+          text:objects.map(v=>v.labels),textfont:{color:ink,size:13},hovertemplate:'%{text}<extra></extra>',showlegend:false});
+      }
+      if (operatorPendingCZ!==null) {
+        const q=siteById.get(operatorPendingCZ);
+        traces.push({name:'operator-design-pending-cz',type:'scatter',mode:'markers',x:[q.x],y:[q.y],customdata:[q.id],
+          marker:{size:29,symbol:'circle-open',color:ink,line:{width:3}},hovertemplate:'Pending CZ: q%{customdata}<extra></extra>',showlegend:false});
+      }
+      const isStar=['A','P_PLUS','P_MINUS'].includes(operatorDesignMode),isTriangle=operatorDesignMode==='B';
+      if (isStar||isTriangle) {
+        const all=isStar?starData:triangleData;
+        const point=obj=>isStar?obj.center:operatorTriangleTarget(obj);
+        for(const obj of all) shapes.push({type:'path',path:polygonPath(isStar?obj.inner_qubits:obj.qubits),
+          xref:'x',yref:'y',layer:'below',fillcolor:'rgba(0,0,0,0)',line:{color:'rgba(13,148,136,.40)',width:1,dash:'dot'}});
+        traces.push({name:isStar?'operator-star-targets':'operator-triangle-targets',type:'scatter',mode:'markers',
+          x:all.map(obj=>point(obj)[0]),y:all.map(obj=>point(obj)[1]),customdata:all.map(obj=>obj.id),
+          marker:{size:13,symbol:isStar?'diamond':'triangle-up',color:'rgba(13,148,136,.6)',line:{color:ink,width:1}},
+          hovertemplate:(isStar?'Star Aₛ %{customdata}':'Triangle Bₜ %{customdata}')+'<br>Click to append to the operator draft<extra></extra>',showlegend:false});
+      }
+      return {traces,shapes};
+    }
+    function handleCalculationOperatorPoint(event) {
+      if (!operatorCanvasReady() || !operatorDesignMode || !event?.points?.length || calculationPointer?.moved) return;
+      const p=event.points[0],name=p.data?.name||p.fullData?.name||'',id=Number(p.customdata);
+      if (!Number.isInteger(id)) return;
+      let handled=false;
+      if (['calculation-qubit-nodes','calculation-state-labels','operator-design-qubits','operator-design-pending-cz'].includes(name))
+        handled=designOperatorOnQubit(id);
+      else if (['operator-star-targets','operator-design-star-labels'].includes(name)) handled=designOperatorOnStar(id);
+      else if (['operator-triangle-targets','operator-design-triangle-labels'].includes(name)) handled=designOperatorOnTriangle(id);
+      if (handled) calculationConsumedPointer=calculationPointerSerial;
+    }
+    // Polygon-interior clicks also work. Defer the geometric fallback until
+    // Plotly has handled point targets; use the pointer token to avoid adding
+    // twice and ignore drags/pans. Never borrow Playground's click handlers.
+    calculationPlot.addEventListener('pointerdown',ev=>{
+      if(ev.button!==0)return;
+      calculationPointerSerial++;
+      calculationPointer={x:ev.clientX,y:ev.clientY,moved:false};
+    },true);
+    calculationPlot.addEventListener('pointermove',ev=>{
+      if(calculationPointer && Math.hypot(ev.clientX-calculationPointer.x,ev.clientY-calculationPointer.y)>5)
+        calculationPointer.moved=true;
+    },true);
+    calculationPlot.addEventListener('pointercancel',()=>{if(calculationPointer)calculationPointer.moved=true;},true);
+    calculationPlot.addEventListener('click',ev=>{
+      if(!operatorCanvasReady() || !operatorDesignMode || calculationPointer?.moved)return;
+      const token=calculationPointerSerial,mode=operatorDesignMode,stateId=selectedSavedId;
+      const rect=calculationPlot.getBoundingClientRect(),fl=calculationPlot._fullLayout;
+      if(!fl?.xaxis || !fl?.yaxis)return;
+      const px=ev.clientX-rect.left-fl.xaxis._offset,py=ev.clientY-rect.top-fl.yaxis._offset;
+      if(px<0||py<0||px>fl.xaxis._length||py>fl.yaxis._length)return;
+      const x=fl.xaxis.p2d(px),y=fl.yaxis.p2d(py);
+      setTimeout(()=>{
+        if(token!==calculationPointerSerial || calculationConsumedPointer===token || mode!==operatorDesignMode || stateId!==selectedSavedId)return;
+        // CZ curves (including saved-state curves) may be the top Plotly
+        // hit at a qubit endpoint. Use the actual click position, not the
+        // nearest point on that curve, to recover the intended qubit.
+        if (['X','Y','Z','R','CZ'].includes(mode)) {
+          let nearest=null,distance=12;
+          for (const q of siteData) {
+            const d=Math.hypot(fl.xaxis.d2p(q.x)-px,fl.yaxis.d2p(q.y)-py);
+            if(d<distance){nearest=q.id;distance=d;}
+          }
+          if(nearest!==null) {
+            calculationConsumedPointer=token;designOperatorOnQubit(nearest);
+          }
+          return;
+        }
+        const isTriangle=mode==='B';
+        const hits=(isTriangle?triangleData:starData).filter(obj=>polygonContains(x,y,isTriangle?obj.qubits:obj.inner_qubits));
+        if(hits.length===1) {
+          calculationConsumedPointer=token;
+          if(isTriangle)designOperatorOnTriangle(hits[0].id);else designOperatorOnStar(hits[0].id);
+        } else if(hits.length>1) showOperatorDesignerMessage('Overlapping polygons: click the target marker for the exact star or triangle you want.');
+      },0);
+    });
+    for(const btn of designerModeButtons)btn.addEventListener('click',()=>chooseOperatorMode(btn.dataset.designerMode));
+    for(const btn of designerExpressionButtons)btn.addEventListener('click',()=>chooseExpressionSymbol(btn.dataset.designerExpression));
+    document.getElementById('operator-scalar-form').addEventListener('submit',submitOperatorScalar);
+    document.getElementById('operator-scalar-cancel').addEventListener('click',()=>operatorScalarDialog.close());
+    operatorScalarDialog.addEventListener('close',()=>{operatorScalarAction=null;});
+    operatorScalarInput.addEventListener('input',()=>{operatorScalarError.textContent='';});
+    operatorUndoBtn.addEventListener('click',undoDesignedOperator);
+    operatorClearBtn.addEventListener('click',clearOperatorDraft);
+    saveOperatorsBtn.addEventListener('click',saveDesignedOperators);
+    savedOperatorsSelect.addEventListener('change',loadDesignedOperators);
+    operatorNameInput.addEventListener('input',updateOperatorDesignerUI);
+    operatorNameInput.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();saveDesignedOperators();}});
+
+    function renderSavedCalculation() {
+      if(activeWorkspaceTab!=='calculation')return;
+      const saved=savedStates.find(rec=>rec.id===selectedSavedId);
+      updateOperatorDesignerUI();
+      if(!saved) {
+        calculationStatus.textContent='Select a saved state. Save one in Playground or import an existing JSON file.';
+        calculationStateInfo.textContent='No saved state selected.';
+        calculationOperationList.textContent='No state selected.';
+        Plotly.purge(calculationPlot);
+        calculationPlot._operatorDesignerBound = false;
+        return;
+      }
+      const events=saved.state.operationLog;
+      calculationStatus.textContent=`Viewing “${saved.name}” · ${events.length} saved preparation operations (read-only). Operator designs are a separate overlay.`;
+      calculationStateInfo.textContent='';
+      const lines=[`Name: ${saved.name}`,`Saved: ${saved.savedAt}`,`Qubits: ${siteData.length}`,
+        `X: ${events.filter(e=>e.type==='X').length} · Z: ${events.filter(e=>e.type==='Z').length} · R: ${events.filter(e=>e.type==='R').length}`,
+        `CZ: ${events.filter(e=>e.type==='CZ').length} · P+: ${events.filter(e=>e.type==='P'&&e.sign===1).length} · P−: ${events.filter(e=>e.type==='P'&&e.sign===-1).length}`];
+      for(const line of lines){const p=document.createElement('p');p.textContent=line;calculationStateInfo.appendChild(p);}
+      calculationOperationList.textContent='';
+      if(!events.length)calculationOperationList.textContent='The saved circuit is empty (reference state).';
+      else {
+        const list=document.createElement('ol');list.className='state-event-list';
+        for(const ev of events.slice(0,1500)){
+          const li=document.createElement('li');li.textContent=formatSavedEvent(ev);list.appendChild(li);
+        }
+        calculationOperationList.appendChild(list);
+        if(events.length>1500){const p=document.createElement('p');p.textContent=`Showing first 1,500 of ${events.length} operations.`;calculationOperationList.appendChild(p);}
+      }
+      const czPairsHere=events.filter(e=>e.type==='CZ').map(e=>e.qubits);
+      const cz=buildCZGeometry(czPairsHere);
+      const siteGates=new Map();
+      for(const ev of events)if(['X','Z','R','Rdag'].includes(ev.type)){
+        const id=ev.qubits[0];if(!siteGates.has(id))siteGates.set(id,[]);
+        siteGates.get(id).push(ev.type==='Rdag'?'R†':ev.type);
+      }
+      const visibleGates=[...siteGates].map(([id,gates])=>({site:siteById.get(id),
+        text:gates.slice().reverse().join('')})).filter(x=>x.site);
+      const latestP=new Map();for(const ev of events)if(ev.type==='P')latestP.set(ev.starId,ev.sign);
+      const labelsP=[...latestP].map(([id,sign])=>({star:starById.get(id),sign})).filter(x=>x.star);
+      const xs=siteData.map(s=>s.x),ys=siteData.map(s=>s.y);
+      const traces=[
+        {type:'scatter',mode:'lines',x:baseEdgeX,y:baseEdgeY,line:{color:'rgba(100,116,139,.65)',width:1.6},showlegend:false,hoverinfo:'skip'},
+        {type:'scatter',mode:'lines',x:cz.lineX,y:cz.lineY,line:{color:'#7c3aed',width:3},showlegend:false,hoverinfo:'skip'},
+        {type:'scatter',mode:'text',x:cz.labelX,y:cz.labelY,text:cz.labelText,textfont:{size:13,color:'#6d28d9'},showlegend:false,hoverinfo:'skip'},
+        {name:'calculation-qubit-nodes',type:'scatter',mode:'markers',x:xs,y:ys,customdata:siteData.map(s=>s.id),marker:{size:14,color:siteData.map(s=>s.color),line:{width:1,color:'#111827'}},hovertemplate:'Qubit %{customdata}<extra></extra>',showlegend:false},
+        {name:'calculation-state-labels',customdata:visibleGates.map(x=>x.site.id),type:'scatter',mode:'text',x:visibleGates.map(x=>x.site.x+.18),y:visibleGates.map(x=>x.site.y+.25),text:visibleGates.map(x=>x.text),textfont:{size:16,color:'#111827'},hoverinfo:'skip',showlegend:false},
+        {type:'scatter',mode:'text',x:labelsP.map(x=>x.star.center[0]),y:labelsP.map(x=>x.star.center[1]),text:labelsP.map(x=>x.sign===1?'P+':'P−'),textfont:{size:14,color:'#0f172a'},hoverinfo:'skip',showlegend:false}
+      ];
+      const design = buildOperatorDesignerOverlay();
+      traces.push(...design.traces);
+      const layout={shapes:design.shapes,uirevision:'kagome-calculation-'+saved.id,dragmode:'pan',paper_bgcolor:'white',plot_bgcolor:'white',margin:{l:10,r:10,t:10,b:10},
+        xaxis:{visible:false,range:[Math.min(...xs)-1.2,Math.max(...xs)+1.2],scaleanchor:'y',scaleratio:1},
+        yaxis:{visible:false,range:[Math.min(...ys)-1.2,Math.max(...ys)+1.2]}};
+      Promise.resolve(Plotly.react(calculationPlot,traces,layout,{responsive:true,displayModeBar:false,scrollZoom:true,doubleClick:false}))
+        .then(() => {
+          if (!calculationPlot._operatorDesignerBound && typeof calculationPlot.on === 'function') {
+            calculationPlot.on('plotly_click', handleCalculationOperatorPoint);
+            calculationPlot._operatorDesignerBound = true;
+          }
+          requestAnimationFrame(rResize);
+        }).catch(error => { showOperatorDesignerMessage(`Canvas rendering failed: ${error.message}`); });
+    }
+    function saveNamedState() {
+      const proposedName = stateNameInput.value.trim();
+      const existingRecord = playgroundEditingStateId
+        ? savedStates.find(rec => rec.id === playgroundEditingStateId)
+        : null;
+      const name = proposedName || existingRecord?.name || '';
+      if(!name){stateNameInput.focus();setStatus('Enter a name for your state first.');return false;}
+      const conflicting = savedStates.find(rec => rec.id !== playgroundEditingStateId && rec.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+      if(conflicting){stateNameInput.focus();setStatus(`“${name}” is already saved. Choose a different name.`);return false;}
+      // Saving an active s ribbon is a finish action, exactly as switching tools.
+      if(anyonKind==='s1'||anyonKind==='s2'){
+        const finished=finishSString();
+        if(!finished.ok){setStatus(finished.message);return false;}
+        clearAnyonGuidance();currentMode='Z';updateActiveModeButtons();render();
+      }
+      const currentState = snapshot();
+      if (existingRecord) {
+        existingRecord.name = name;
+        existingRecord.savedAt = new Date().toISOString();
+        existingRecord.state = deepClone(currentState);
+        selectedSavedId = existingRecord.id;
+        playgroundEditingStateId = existingRecord.id;
+        persistSavedLibrary();
+        updateSavedStateDropdown(existingRecord.id);
+        stateNameInput.value = name;
+        markPlaygroundBaseline();
+        setStatus(`Updated “${name}” (${existingRecord.state.operationLog.length} ordered gates) in the library.`);
+        return true;
+      }
+      const record={id:newSavedId(),name,savedAt:new Date().toISOString(),state:deepClone(currentState)};
+      savedStates.push(record);selectedSavedId=record.id;playgroundEditingStateId=record.id;
+      persistSavedLibrary();updateSavedStateDropdown(record.id);
+      setStatus(`Saved “${name}” (${record.state.operationLog.length} ordered gates) to the library. Open Calculation to view it; use Export to download JSON.`);
+      stateNameInput.value=name;
+      markPlaygroundBaseline();
+      return true;
+    }
+    function exportSavedStates() {
+      if(!savedStates.length && !savedOperators.length){setStatus('No states or operator combinations have been saved yet.');return;}
+      // Generate the filename at the moment Export is clicked, using the
+      // user's browser-local date and time: KSS_YYYYMMDD_HHMMSS.json.
+      const now = new Date();
+      const pad2 = n => String(n).padStart(2, '0');
+      const datePart = `${now.getFullYear()}${pad2(now.getMonth()+1)}${pad2(now.getDate())}`;
+      const timePart = `${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+      const filename = `KSS_${datePart}_${timePart}.json`;
+      downloadStateJSON({format:savedCollectionFormat,version:savedStateVersion,lattice:latticeDescriptor,states:savedStates,operators:savedOperators}, filename);
+      setStatus(`Exported ${savedStates.length} states and ${savedOperators.length} operator combinations to ${filename}.`);
+      calculationStatus.textContent=`Exported ${savedStates.length} states and ${savedOperators.length} operator combinations as ${filename}. Your selections are unchanged.`;
+    }
+    async function importSavedStatesFile(file) {
+      if(!file)return;
+      try {
+        if(file.size>8*1024*1024)throw Error('File is too large (8 MB maximum).');
+        const obj=JSON.parse(await file.text());
+        if(obj?.version!==savedStateVersion)throw Error('Unsupported state JSON version.');
+        let incoming;
+        if(obj.format===savedStateFormat)incoming=[obj.state];
+        else if(obj.format===savedCollectionFormat && Array.isArray(obj.states))incoming=obj.states;
+        else throw Error('Unrecognized file format. Import a Kagome saved-state JSON file.');
+        if(incoming.length>250)throw Error('A file may contain at most 250 saved states.');
+        // Validate ALL records before mutating the library (atomic import).
+        const validated=incoming.map(record=>validateSavedRecord(record,obj.lattice));
+        const incomingOperators = obj.operators === undefined ? [] : obj.operators;
+        if (!Array.isArray(incomingOperators) || incomingOperators.length > 250)
+          throw Error('Invalid operator library (maximum 250 combinations per file).');
+        if (incomingOperators.length && JSON.stringify(obj.lattice) !== latticeDescriptorText)
+          throw Error('Operator combinations belong to a different lattice.');
+        const validatedOperators = incomingOperators.map(validateOperatorRecord);
+        let selected=null;
+        for(const rec of validated){
+          rec.name=uniqueImportedName(rec.name);rec.id=newSavedId();savedStates.push(rec);selected=rec.id;
+        }
+        for (const rec of validatedOperators) {
+          rec.id = newOperatorId();
+          rec.name = uniqueImportedOperatorName(rec.name);
+          savedOperators.push(rec);
+        }
+        selectedSavedId=selected||selectedSavedId;
+        persistSavedLibrary();updateSavedStateDropdown(selectedSavedId);
+        const message=`Imported ${validated.length} state${validated.length===1?'':'s'} and ${validatedOperators.length} operator combination${validatedOperators.length===1?'':'s'}. Select them in Calculation.`;
+        setStatus(message);calculationStatus.textContent=message;
+      }catch(error){
+        const message=`Import failed: ${error.message}`;
+        setStatus(message);calculationStatus.textContent=message;
+      }finally {importStatesFile.value='';}
+    }
+    // ====================================================================
+    // Inner Product. Uses the SAME phase-sensitive algebra as the R
+    // workbench, but undoes its positive per-projector normalization.
+    // Does not mutate Playground, saved snapshots, or R-workbench state.
+    // ====================================================================
+    function refreshIPStateDropdowns() {
+      for (const select of [ipState1Select, ipState2Select]) {
+        const previous = select.value;
+        select.textContent = '';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = savedStates.length
+          ? (select === ipState1Select ? 'Choose |1⟩…' : 'Choose |2⟩…') : 'No saved states yet';
+        select.appendChild(empty);
+        for (const rec of savedStates) {
+          const option = document.createElement('option');
+          option.value = rec.id; option.textContent = rec.name;
+          select.appendChild(option);
+        }
+        select.value = savedStates.some(rec => rec.id === previous) ? previous : '';
+      }
+      invalidateIPResult();
+    }
+    function ipCurrentOperatorSignature() {
+      const rec=savedOperators.find(r=>r.id===ipOperatorSelect.value);
+      return rec?JSON.stringify([rec.id,rec.name,rec.order,rec.operators]):'I';
+    }
+    function setIPCalculationButtons(disabled, busyMode=null) {
+      ipCalculateBtn.disabled=disabled;
+      ipNormalizedBtn.disabled=disabled;
+      ipCalculateBtn.textContent=busyMode==='raw'?'Calculating…':'Calculate ⟨2|O|1⟩';
+      ipNormalizedBtn.textContent=busyMode==='normalized'?'Calculating…':'Normalized ⟨2|O|1⟩';
+    }
+    function invalidateIPResult() {
+      ipCalculationToken++;
+      ipLastReport = null;
+      setIPCalculationButtons(!(ipState1Select.value && ipState2Select.value));
+      ipResultDiv.removeAttribute('aria-busy');
+      ipSelectedOperatorSignature=ipCurrentOperatorSignature();
+      const rec=savedOperators.find(r=>r.id===ipOperatorSelect.value);
+      try {
+        const tokens=rec?validateOperatorRecord(rec).operators:[{type:'I',qubits:[]}];
+        renderDesignedOperatorEquation(tokens,ipOperatorEquation);
+      } catch(error) {
+        setIPCalculationButtons(true);
+        ipOperatorEquation.textContent='Invalid saved operator';
+        ipResultDiv.textContent=error.message;return;
+      }
+      ipResultDiv.textContent = !savedStates.length
+        ? 'Save or import states, then choose both inputs.'
+        : ipCalculateBtn.disabled ? 'Choose two saved states (the same state is allowed).'
+        : 'Ready. Choose Calculate ⟨2|O|1⟩ or Normalized ⟨2|O|1⟩. Any previous result has been cleared.';
+    }
+    function ipCircuitEvents(engine, events) {
+      if (!Array.isArray(events)) throw Error('The saved state has no chronological operation list.');
+      return events.map((ev, i) => {
+        if (!ev || !['X','Z','R','Rdag','CZ','P'].includes(ev.type) || !Array.isArray(ev.qubits))
+          throw Error(`Unsupported or malformed operation at position ${i + 1}.`);
+        const arity = ev.type === 'CZ' ? 2 : ev.type === 'P' ? 0 : 1;
+        if (ev.qubits.length !== arity || ev.qubits.some(q => !Number.isInteger(q)))
+          throw Error(`Invalid qubit list at operation ${i + 1}.`);
+        ev.qubits.forEach(q => engine.index(q));
+        if (ev.type === 'CZ' && ev.qubits[0] === ev.qubits[1]) throw Error('CZ needs two different qubits.');
+        if (ev.type === 'P') {
+          engine.sid(ev.starId);
+          if (ev.sign !== 1 && ev.sign !== -1) throw Error('P requires an explicit +1 or −1 outcome.');
+        }
+        // Old JSON may flag a projector as autoTrivial. Re-evaluate it rather
+        // than trusting historical display metadata as a physical identity.
+        return {type:ev.type,qubits:ev.qubits.slice(),
+          ...(ev.type === 'P' ? {starId:ev.starId,sign:ev.sign,autoTrivial:false} : {})};
+      });
+    }
+    function ipAdjointEvents(events) {
+      return events.slice().reverse().map(ev => ({...ev,qubits:ev.qubits.slice(),
+        type:ev.type === 'R' ? 'Rdag' : ev.type === 'Rdag' ? 'R' : ev.type}));
+    }
+    function ipUnitaryResidual(engine, ketEvents, braEvents) {
+      // This is an optional certificate, not a guess about an unmatched gate.
+      // For the unitary gate set commute X through diagonal phases exactly:
+      // O2† O1 = exp(iπ phase8/4) X(offset) i^{q(z)}, q quadratic mod 4.
+      const word = [...ketEvents, ...ipAdjointEvents(braEvents)];
+      if (word.some(ev => ev.type === 'P')) return {kind:'projected',
+        message:'Projectors are sums, not invertible gates. Their coherent branches and 1/2 factors are contracted symbolically; P†P = P, not I.'};
+      const q = new RPhasePolynomial(engine.sites.length);
+      let offset = 0n, phase8 = 0;
+      for (const ev of word) {
+        const a = engine.index(ev.qubits[0]), bit = 1n << BigInt(a);
+        const ca = Number((offset >> BigInt(a)) & 1n);
+        if (ev.type === 'X') offset ^= bit;
+        else if (ev.type === 'Z') q.parity(2, bit, ca);
+        else if (ev.type === 'R' || ev.type === 'Rdag') {
+          const sign = ev.type === 'R' ? 1 : -1;
+          phase8 += sign; q.parity(-sign, bit, ca);
+        } else if (ev.type === 'CZ') {
+          const b = engine.index(ev.qubits[1]);
+          q.product(bit, ca, 1n << BigInt(b), Number((offset >> BigInt(b)) & 1n));
+        }
+      }
+      phase8 = rSymMod8(phase8 + 2 * q.c); q.c = 0;
+      const siteID = i => Number(engine.sites[i].id ?? engine.sites[i].site_id);
+      const xQubits = rSymIndices(offset).map(siteID);
+      if (!offset && !q.adj.some(v => v !== 0n) && q.lin.every(v => !(v & 1))) {
+        const zQubits = q.lin.flatMap((v,i) => v === 2 ? [siteID(i)] : []);
+        const check = engine.zStringReference(zQubits);
+        return {kind:'z-string',phase8,zQubits,...check};
+      }
+      // X support overlapping an odd number of any B_t sites is an explicit
+      // zero-expectation witness. All remaining diagonal factors commute with B_t.
+      const witness = engine.triangles.find(t => t.qubits.reduce((p,id) =>
+        p ^ Number((offset >> BigInt(engine.index(id))) & 1n), 0));
+      const terms = [];
+      let termCount = 0;
+      for (let i=0;i<q.n;i++) {
+        if (q.lin[i]) {termCount++; if (terms.length < 60) terms.push(`${q.lin[i]} z${siteID(i)}`);}
+        for (const j of rSymIndices(q.adj[i])) if (j>i) {
+          termCount++; if (terms.length < 60) terms.push(`2 z${siteID(i)} z${siteID(j)}`);
+        }
+      }
+      return {kind:'phase-polynomial',phase8,xQubits,triangleWitness:witness?.id ?? null,
+        polynomial:terms.join(' + ') || '0',termCount,omittedTerms:Math.max(0,termCount-60)};
+    }
+    function computeUnnormalizedIP(engine, events1, events2) {
+      const ketEvents = ipCircuitEvents(engine, events1);
+      const braEvents = ipCircuitEvents(engine, events2);
+      const first = engine.run(ketEvents), second = engine.run(braEvents);
+      // engine.run uses normalized successful branches internally. Restore
+      // |j> = O_j |Omega> by multiplying by sqrt(total success probability).
+      // Work in log2 scale to avoid underflow. The P=(I±A)/2 itself is unchanged.
+      const rawFirst = engine.copy(first), rawSecond = engine.copy(second);
+      if (!rawFirst.dead) rawFirst.logScale += first.logSuccess / 2;
+      if (!rawSecond.dead) rawSecond.logScale += second.logSuccess / 2;
+      const exact = engine.innerExact(rawFirst, rawSecond, true); // <second|first>
+      if (first.dead || second.dead) exact.reason = 'At least one input is the zero vector (zero-probability projector branch).';
+      const normSquared = state => state.dead
+        ? {zero:true,power:-Infinity,phase8:0}
+        : {zero:false,power:state.logSuccess,phase8:0};
+      const norm1 = normSquared(first), norm2 = normSquared(second);
+      // Exact Cauchy-Schwarz bound in log-space; no numerical underflow here.
+      if (!exact.zero && exact.power > (norm1.power + norm2.power)/2 + 1e-9)
+        throw Error('Internal consistency check failed: overlap exceeds the product of input norms.');
+      const residual = ipUnitaryResidual(engine, ketEvents, braEvents);
+      if (residual.kind === 'z-string') {
+        if ((residual.value === 0) !== exact.zero || (!exact.zero &&
+            (Math.abs(exact.power)>1e-9 || exact.phase8 !== residual.phase8)))
+          throw Error('Residual-Z certificate disagrees with the symbolic contraction.');
+      }
+      if (residual.triangleWitness != null && !exact.zero)
+        throw Error('Triangle anticommutation witness disagrees with the symbolic contraction.');
+      return {exact,value:rSymComplex(exact),norm1,norm2,
+        zeroInput1:first.dead,zeroInput2:second.dead,
+        projectors1:first.projectionLog,projectors2:second.projectionLog,
+        ketEvents,braEvents,residual,reference:engine.metadata()};
+    }
+    function ipExactHTML(result) {
+      if (result.zero) return '0';
+      const p = result.power, k = rSymMod8(result.phase8);
+      if (p === 0) return ['1','exp(iπ/4)','i','exp(3iπ/4)','−1','exp(5iπ/4)','−i','exp(7iπ/4)'][k];
+      const magnitude = `2<sup>${p}</sup>`;
+      return k === 0 ? magnitude : `${magnitude} × exp(iπ × ${k}/4)`;
+    }
+    function ipNumber(value) {
+      if (value === 0) return '0';
+      if (!Number.isFinite(value)) return String(value);
+      return (Math.abs(value) < 1e-6 || Math.abs(value) >= 1e6)
+        ? value.toExponential(8) : Number(value.toPrecision(10)).toString();
+    }
+    function ipComplexText(value) {
+      return `${ipNumber(value.re)} ${value.im < 0 ? '−' : '+'} ${ipNumber(Math.abs(value.im))} i`;
+    }
+    function ipEventText(ev) {
+      if (ev.type === 'P') return `P${ev.sign===1?'+':'−'}(A${ev.starId})`;
+      return `${ev.type==='Rdag'?'R†':ev.type}(${ev.qubits.map(q=>'q'+q).join(',')})`;
+    }
+    function ipCircuitText(events) {
+      const shown = events.slice(0,160).map(ipEventText);
+      return (shown.join(' → ') || 'I') + (events.length > 160 ? ` → … (${events.length} gates total)` : '');
+    }
+    function ipResidualHTML(residual) {
+      if (residual.kind === 'projected') return `<p>${residual.message}</p>`;
+      const phase = ipExactHTML({zero:false,power:0,phase8:residual.phase8});
+      if (residual.kind === 'z-string') {
+        const support = residual.zQubits.map(q=>'Z'+q).join(' · ') || 'I';
+        let reason;
+        if (!residual.zQubits.length) reason = 'All non-scalar factors cancel: ⟨Ω|I|Ω⟩ = 1. The remaining global phase is retained.';
+        else if (residual.triangleProduct) {
+          const mask = residual.zQubits.reduce((m,id)=>m ^ qubitBit(id),0n);
+          const cert = triangleDecomposition(mask);
+          reason = `Z(residual) = ${cert.triangles.map(id=>'B'+id).join(' · ')}; each Bₜ has eigenvalue +1, so the residual expectation is 1.`;
+        } else if (residual.witnessStar !== null) reason = `Z(residual) anticommutes with complete star A${residual.witnessStar}. Since A${residual.witnessStar}|Ω⟩ = |Ω⟩, its expectation is exactly 0.`;
+        else reason = 'Outside the Bₜ span but equal to +1 in the existing star-generated open-boundary reference sector. This is a boundary-sector choice, not a consequence of Bₜ alone.';
+        return `<p>After exact reordering: <strong>O₂† O₁ = ${phase} × ${support}</strong></p><p>${reason}</p>`;
+      }
+      const support = residual.xQubits.map(q=>'X'+q).join(' · ') || 'I';
+      const witness = residual.triangleWitness !== null
+        ? `<p>The X support overlaps B${residual.triangleWitness} oddly. This proves the sandwich is zero, even with the diagonal phase factors.</p>`
+        : '<p>This residual is evaluated by the full phase-sensitive contraction. Unmatched X, Z, R or CZ factors are not assumed to vanish.</p>';
+      return `<p>Exact normal form: O₂† O₁ = ${phase} × (${support}) × i<sup>q(z)</sup>, with z the physical computational-basis bits.</p>
+        <pre>q(z) = ${residual.polynomial}${residual.omittedTerms ? ' + … ('+residual.termCount+' terms total)' : ''} (mod 4)</pre>${witness}`;
+    }
+    function ipProjectorDetails(log, label) {
+      if (!log.length) return `<p>${label}: no projectors; norm squared = 1.</p>`;
+      const rows = log.slice(0,200).map((p,i) => `${i+1}. A${p.starId}: conditional p = ${ipNumber(p.p)}${p.unreachable?' (unreachable after an earlier zero branch)':''}`);
+      if (log.length>200) rows.push(`… ${log.length} projectors total`);
+      return `<p>${label}: success probabilities (their product is the unnormalized norm squared).</p><pre>${rows.join('\n')}</pre>`;
+    }
+    function ipReportHTML(report, name1, name2) {
+      const ex = report.exact;
+      const red = ex.reduction;
+      const meta = report.reference;
+      const underflow = !ex.zero && report.value.re===0 && report.value.im===0;
+      let html = `<p>|1⟩: <strong>${rEscape(name1)}</strong> &nbsp; |2⟩: <strong>${rEscape(name2)}</strong></p>
+        <div class="ip-value">⟨2|1⟩ = ${ipExactHTML(ex)}</div>
+        <p>Complex value ≈ <strong>${ipComplexText(report.value)}</strong>${underflow?' (numeric underflow; the exact expression above is nonzero)':''}</p>
+        <div class="ip-norms"><span>⟨1|1⟩ = ${ipExactHTML(report.norm1)}</span><span>⟨2|2⟩ = ${ipExactHTML(report.norm2)}</span></div>
+        <p class="ip-note">No division by either norm. Saved Playground projections use normalized branches; this calculation removes those extra positive normalization factors, while retaining every projector’s 1/2.</p>`;
+      if (report.zeroInput1 || report.zeroInput2) html += '<p class="ip-note">A zero input gives inner product 0. A normalized overlap for that input would be undefined.</p>';
+      html += `<details><summary>Operator order and residual</summary>
+        <p>For chronological gates G₁ → … → Gₙ, O = Gₙ … G₁. The bra reverses the order and adjoints every gate. R† = exp(−iπZ/4); X, Z, CZ and P± are Hermitian.</p>
+        <p>O₁, applied to |Ω⟩:</p><pre>${ipCircuitText(report.ketEvents)}</pre>
+        <p>Then O₂† (rightmost factor acts first):</p><pre>${ipCircuitText(ipAdjointEvents(report.braEvents))}</pre>
+        ${ipResidualHTML(report.residual)}</details>`;
+      html += '<details><summary>Symbolic contraction and reference state</summary>';
+      if (red) html += `<p>Ground-state signs aligned using ${red.groundSignAlignmentStars.length} star factor(s). ${ex.variables} binary variables, ${ex.rank} matching constraints, ${ex.freeVariables} free variables; the quadratic Gauss sum is evaluated algebraically, not by enumerating state amplitudes.</p>
+        <p>Prefactor: ${ipExactHTML({zero:false,power:red.prefactorPower,phase8:red.prefactorPhase8})}; Gauss sum: ${ipExactHTML(red.gaussSum)}.</p>`;
+      else html += `<p>${rEscape(ex.reason || 'Exact orthogonality detected before the phase sum.')}</p>`;
+      html += `<p>Reference: normalized ∏ₛ(I + Aₛ)|0…0⟩ using ${meta.completeStars} independent complete stars on ${meta.physicalQubits} qubits—the same reference as the R workbench.</p>
+        <p>The reference fixes ${meta.extraDiagonalConstraints} additional diagonal constraints beyond the ${meta.triangleRank} independent Bₜ constraints. A residual outside the Bₜ span is not automatically zero.</p>
+        <p>For R = exp(+iπZ/4), ⟨R⟩ = (1 + i⟨Z⟩)/√2. In particular, ⟨Z⟩ = 0 gives ⟨R⟩ = 1/√2, not 0.</p></details>`;
+      if (report.projectors1.length || report.projectors2.length) html += `<details><summary>Projector weights</summary>${ipProjectorDetails(report.projectors1,'State 1')}${ipProjectorDetails(report.projectors2,'State 2')}</details>`;
+      return html;
+    }
+    // ====================================================================
+    // Saved-expression matrix elements. The existing RSymbolicEngine stays
+    // unchanged. We expand SUMS of operator words, never physical amplitudes
+    // or projector branches. Each word uses the same exact quadratic engine.
+    // Scalars are exact decimal rationals; results lie in Q(sqrt(2), i).
+    // ====================================================================
+    function ipRational(n, d=1n) {
+      if (d===0n) throw Error('Division by zero in the saved operator.');
+      if (n===0n) return {n:0n,d:1n};
+      if (d<0n) {n=-n;d=-d;}
+      let a=n<0n?-n:n,b=d;
+      while (b) {const r=a%b;a=b;b=r;}
+      n/=a;d/=a;
+      if ((n<0n?-n:n).toString(2).length+d.toString(2).length>131072)
+        throw Error('Exact coefficients are too large. Simplify the saved expression.');
+      return {n,d};
+    }
+    function ipRatAdd(a,b) {return ipRational(a.n*b.d+b.n*a.d,a.d*b.d);}
+    function ipRatMultiply(a,b) {return ipRational(a.n*b.n,a.d*b.d);}
+    function ipRatNegate(a) {return {n:-a.n,d:a.d};}
+    function ipRatScalar(value) {
+      const text=canonicalOperatorScalar(value);
+      let [mantissa,exponent='0']=text.split('e');
+      const negative=mantissa.startsWith('-');
+      if (negative) mantissa=mantissa.slice(1);
+      const [whole,frac='']=mantissa.split('.');
+      let n=BigInt(whole+frac);if (negative)n=-n;
+      const scale=Number(exponent)-frac.length;
+      return scale>=0?ipRational(n*10n**BigInt(scale)):ipRational(n,10n**BigInt(-scale));
+    }
+    function ipRatText(a) {return a.d===1n?String(a.n):`${a.n}/${a.d}`;}
+    function ipRatJSON(a) {return {numerator:String(a.n),denominator:String(a.d)};}
+    function ipRatNumber(a) {
+      if (!a.n) return 0;
+      const negative=a.n<0n,n=negative?-a.n:a.n;
+      const ns=Math.max(0,n.toString(2).length-54),ds=Math.max(0,a.d.toString(2).length-54);
+      const mantissa=Number(n>>BigInt(ns))/Number(a.d>>BigInt(ds));
+      // Split large exponents to avoid premature overflow/underflow where
+      // the mantissa would otherwise bring the final result back in range.
+      const e=ns-ds;
+      const value=e>1023?(mantissa*2**(e-1023))*2**1023:
+        e< -1022?(mantissa*2**(e+1022))*2**-1022:mantissa*2**e;
+      return negative?-value:value;
+    }
+    function ipExactSumZero() {return Array.from({length:4},()=>ipRational(0n));}
+    function ipAddExactTerm(sum, coefficient, exact) {
+      if (!coefficient.n || exact.zero) return;
+      const h=Math.round(2*exact.power),phase=rSymMod8(exact.phase8);
+      if (!Number.isSafeInteger(h) || Math.abs(h-2*exact.power)>1e-8 || Math.abs(h)>131000)
+        throw Error('Unsupported exact power in the symbolic result.');
+      const odd=phase%2,exponent=h-odd,power=Math.floor(exponent/2);
+      const root=exponent-2*power; // 0: rational; 1: sqrt(2) coefficient
+      const dyadic=power>=0?ipRational(1n<<BigInt(power)):ipRational(1n,1n<<BigInt(-power));
+      const value=ipRatMultiply(coefficient,dyadic);
+      const signs=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]][phase];
+      for(let part=0;part<2;part++) if(signs[part]) {
+        const index=2*part+root;
+        sum[index]=ipRatAdd(sum[index],signs[part]<0?ipRatNegate(value):value);
+      }
+    }
+    function ipRealExactText(a,b) {
+      const parts=[];
+      for(const [r,radical] of [[a,false],[b,true]]) {
+        if(!r.n)continue;
+        const negative=r.n<0n,abs={n:negative?-r.n:r.n,d:r.d};
+        let body=radical?(abs.n===abs.d?'√2':`${ipRatText(abs)} × √2`):ipRatText(abs);
+        parts.push((parts.length?(negative?' − ':' + '):(negative?'−':''))+body);
+      }
+      return parts.join('')||'0';
+    }
+    function ipExactSumResult(sum) {
+      const real=ipRealExactText(sum[0],sum[1]),imag=ipRealExactText(sum[2],sum[3]);
+      const realZero=!sum[0].n&&!sum[1].n,imagZero=!sum[2].n&&!sum[3].n;
+      const text=imagZero?real:realZero?(imag==='1'?'i':imag==='−1'?'−i':`(${imag}) i`):`${real} + (${imag}) i`;
+      return {kind:'rational-radical',zero:realZero&&imagZero,text,
+        // a + b sqrt(2) + i (c + d sqrt(2)); all coefficients exact rationals.
+        coefficients:{a:ipRatJSON(sum[0]),b:ipRatJSON(sum[1]),c:ipRatJSON(sum[2]),d:ipRatJSON(sum[3])},
+        value:{re:ipRatNumber(sum[0])+Math.SQRT2*ipRatNumber(sum[1]),
+          im:ipRatNumber(sum[2])+Math.SQRT2*ipRatNumber(sum[3])}};
+    }
+    function ipCompileOperatorExpression(ast, maxTerms=256) {
+      let products=0;
+      const one=()=>ipRational(1n);
+      const singleton=(coefficient,factors=[])=>new Map(coefficient.n?[[JSON.stringify(factors),{coefficient,factors}]]:[]);
+      function add(out,term,negative=false) {
+        const key=JSON.stringify(term.factors),coefficient=negative?ipRatNegate(term.coefficient):term.coefficient;
+        const combined=out.has(key)?ipRatAdd(out.get(key).coefficient,coefficient):coefficient;
+        if(combined.n)out.set(key,{coefficient:combined,factors:term.factors});else out.delete(key);
+        if(out.size>maxTerms)throw Error(`This expression expands beyond ${maxTerms} distinct ordered terms. Split it into smaller saved operators; no partial result is returned.`);
+      }
+      function compile(node) {
+        if(node.kind==='atom')return singleton(one(),node.event.type==='I'?[]:[node.event]);
+        if(node.kind==='scalar')return singleton(ipRatScalar(node.value));
+        if(node.kind==='group')return compile(node.child);
+        if(node.kind==='signed'||node.kind==='divide') {
+          const out=compile(node.kind==='signed'?node.child:node.numerator);
+          let factor=one();
+          if(node.kind==='signed') {if(node.signs.filter(s=>s==='-').length%2)factor=ipRational(-1n);}
+          else {const denominator=ipRatScalar(node.value);factor=ipRational(denominator.d,denominator.n);}
+          for(const term of out.values())term.coefficient=ipRatMultiply(term.coefficient,factor);
+          return out;
+        }
+        if(node.kind==='sum') {
+          const out=new Map();
+          node.terms.forEach((child,i)=>{for(const term of compile(child).values())add(out,term,i>0&&node.signs[i-1]==='-');});
+          return out;
+        }
+        if(node.kind==='product') {
+          let out=singleton(one());
+          for(const child of node.factors) {
+            const right=compile(child),next=new Map();
+            for(const leftTerm of out.values())for(const rightTerm of right.values()) {
+              if(++products>100000)throw Error('Operator expansion is too large. Split the expression into smaller saved operators.');
+              add(next,{coefficient:ipRatMultiply(leftTerm.coefficient,rightTerm.coefficient),
+                factors:[...leftTerm.factors,...rightTerm.factors]});
+            }
+            out=next;
+          }
+          return out;
+        }
+        throw Error('Unsupported saved-operator expression.');
+      }
+      return [...compile(ast).values()];
+    }
+    function ipApplyRawOperator(engine,state,ev) {
+      if(state.dead)return;
+      // Only this temporary copy is modified. No normalize/project call is
+      // made for O: P=(I +/- A)/2 must act linearly, including a zero branch.
+      if(ev.type==='P') {
+        const sid=engine.sid(ev.starId),f=engine.residual(state,sid);
+        const h=state.poly.grow(),bit=1n<<BigInt(h);
+        state.poly.product(bit,0,f.mask,f.c^(ev.sign===-1?1:0));
+        state.t[sid]^=bit;state.logScale-=1;
+        state.history.push({...ev,qubits:[]});
+      } else if(ev.type==='Y') {
+        // Y=i X Z: Z acts first, then X, with the indispensable global i.
+        engine.gate(state,{type:'Z',qubits:[...ev.qubits]});
+        engine.gate(state,{type:'X',qubits:[...ev.qubits]});
+        state.phase8=rSymMod8(state.phase8+2);
+      } else if(ev.type==='B') {
+        const triangle=engine.triangles.find(t=>t.id===ev.triangleId);
+        if(!triangle)throw Error('Unknown triangle '+ev.triangleId);
+        for(const q of triangle.qubits)engine.gate(state,{type:'Z',qubits:[q]});
+      } else if(ev.type!=='I') engine.gate(state,{...ev,qubits:[...ev.qubits]});
+    }
+    function* ipMatrixElementSteps(engine,events1,events2,operatorRecord=null) {
+      // Default I retains the original independent residual certificate.
+      if(operatorRecord===null) {
+        const report=computeUnnormalizedIP(engine,events1,events2),sum=ipExactSumZero();
+        ipAddExactTerm(sum,ipRational(1n),report.exact);
+        const exact=ipExactSumResult(sum);
+        return {...report,identityReport:report,operatorName:'I',operatorTeX:'I',operatorTokens:[{type:'I',qubits:[]}],
+          exactSum:exact,value:exact.value,termCount:1,terms:[{coefficient:'1',word:'I',exact:report.exact}],
+          method:'Identity operator: original unnormalized inner product'};
+      }
+      const rec=validateOperatorRecord(operatorRecord),ast=parseOperatorExpression(rec.operators);
+      const terms=ipCompileOperatorExpression(ast);
+      const ketEvents=ipCircuitEvents(engine,events1),braEvents=ipCircuitEvents(engine,events2);
+      const first=engine.run(ketEvents),second=engine.run(braEvents);
+      const rawFirst=engine.copy(first),rawSecond=engine.copy(second);
+      if(!first.dead)rawFirst.logScale+=first.logSuccess/2;
+      if(!second.dead)rawSecond.logScale+=second.logSuccess/2;
+      const norm=state=>state.dead?{zero:true,power:-Infinity,phase8:0}:{zero:false,power:state.logSuccess,phase8:0};
+      const norm1=norm(first),norm2=norm(second),sum=ipExactSumZero(),termResults=[];
+      yield {completed:0,total:terms.length};
+      for(let i=0;i<terms.length;i++) {
+        const term=terms[i];
+        const acted=engine.copy(rawFirst);
+        for(let j=term.factors.length-1;j>=0;j--)ipApplyRawOperator(engine,acted,term.factors[j]);
+        const exact=engine.innerExact(acted,rawSecond,i===0); // <2|word|1>
+        // Every individual primitive is unitary or a norm <= 1 projector.
+        // The SUM can exceed this bound (e.g. O=3I), and is not constrained.
+        if(!exact.zero && exact.power>(norm1.power+norm2.power)/2+1e-9)
+          throw Error('Internal consistency check failed for one operator word.');
+        ipAddExactTerm(sum,term.coefficient,exact);
+        termResults.push({coefficient:ipRatText(term.coefficient),
+          word:term.factors.map(formatDesignedOperator).join(' ')||'I',
+          factors:term.factors.map(ev=>({...ev,qubits:[...ev.qubits]})),exact});
+        yield {completed:i+1,total:terms.length};
+      }
+      const exactSum=ipExactSumResult(sum);
+      return {operatorName:rec.name,operatorTeX:operatorExpressionTeX(ast),operatorTokens:rec.operators,
+        exactSum,value:exactSum.value,norm1,norm2,zeroInput1:first.dead,zeroInput2:second.dead,
+        projectors1:first.projectionLog,projectors2:second.projectionLog,ketEvents,braEvents,
+        termCount:terms.length,terms:termResults,reference:engine.metadata(),
+        method:'Ordered expression expansion with exact rational coefficients and phase-polynomial contractions'};
+    }
+    function computeUnnormalizedMatrixElement(engine,events1,events2,operatorRecord=null) {
+      const steps=ipMatrixElementSteps(engine,events1,events2,operatorRecord);
+      for(;;){const next=steps.next();if(next.done)return next.value;}
+    }
+    function normalizeMatrixElementReport(report) {
+      // Only normalize the two ORIGINAL inputs, never O|1> or individual
+      // operator terms. Keep the raw numerator and raw norms for inspection.
+      // The symbolic engine stores squared norms as exact powers of two.
+      // Rescale the rational/radical coefficients before numeric conversion:
+      // directly multiplying tiny floating-point norms can underflow to 0.
+      const base={...report,normalized:true,
+        unnormalizedExactSum:report.exactSum,unnormalizedValue:report.value};
+      if(report.norm1.zero || report.norm2.zero) {
+        return {...base,normalizationUndefined:true,
+          normalizationDenominator:{zero:true,power:-Infinity,phase8:0},
+          exactSum:null,value:null};
+      }
+      for(const norm of [report.norm1,report.norm2]) {
+        if(!Number.isFinite(norm.power) || rSymMod8(norm.phase8)!==0)
+          throw Error('Input norm squared must be a finite positive-real symbolic value.');
+      }
+      const denominatorPower=(report.norm1.power+report.norm2.power)/2;
+      const sum=ipExactSumZero();
+      for(const [i,key] of ['a','b','c','d'].entries()) {
+        const coefficient=report.exactSum.coefficients[key];
+        ipAddExactTerm(sum,
+          ipRational(BigInt(coefficient.numerator),BigInt(coefficient.denominator)),
+          {zero:false,power:-denominatorPower+(i%2?0.5:0),phase8:i>=2?2:0});
+      }
+      const exactSum=ipExactSumResult(sum);
+      return {...base,normalizationUndefined:false,
+        normalizationDenominator:{zero:false,power:denominatorPower,phase8:0},
+        exactSum,value:exactSum.value};
+    }
+    function refreshIPOperatorDropdown() {
+      const previous=ipOperatorSelect.value;
+      ipOperatorSelect.textContent='';
+      const identity=document.createElement('option');identity.value='';identity.textContent='I (identity)';
+      ipOperatorSelect.appendChild(identity);
+      for(const rec of savedOperators) {
+        const option=document.createElement('option');option.value=rec.id;option.textContent=rec.name;
+        ipOperatorSelect.appendChild(option);
+      }
+      ipOperatorSelect.value=savedOperators.some(r=>r.id===previous)?previous:'';
+      if(ipSelectedOperatorSignature!==ipCurrentOperatorSignature())invalidateIPResult();
+    }
+    function ipMatrixReportHTML(report,name1,name2) {
+      const meta=report.reference;
+      let html=`<p>|1⟩: <strong>${rEscape(name1)}</strong> &nbsp; |2⟩: <strong>${rEscape(name2)}</strong> &nbsp; O: <strong>${rEscape(report.operatorName)}</strong></p>`;
+      const normHTML=`<div class="ip-norms"><span>⟨1|1⟩ = ${ipExactHTML(report.norm1)}</span><span>⟨2|2⟩ = ${ipExactHTML(report.norm2)}</span></div>`;
+      if(report.normalizationUndefined) {
+        html+='<div class="ip-error">Normalized ⟨2|O|1⟩ is undefined: at least one input state has zero norm.</div>'+normHTML;
+        html+='<p class="ip-note">√(⟨2|2⟩ ⟨1|1⟩) = 0, so division is not performed. The unnormalized matrix element is 0. Choose two nonzero input states. Saved states and the operator draft are unchanged.</p>';
+        if(report.projectors1.length||report.projectors2.length)html+=`<details><summary>Input-state projector weights</summary>${ipProjectorDetails(report.projectors1,'State 1')}${ipProjectorDetails(report.projectors2,'State 2')}</details>`;
+        return html;
+      }
+      const ex=report.exactSum;
+      const underflow=!ex.zero&&report.value.re===0&&report.value.im===0;
+      const overflow=!Number.isFinite(report.value.re)||!Number.isFinite(report.value.im);
+      const label=report.normalized?'Normalized ⟨2|O|1⟩':'⟨2|O|1⟩';
+      html+=`<div class="ip-value">${label} = ${rEscape(ex.text)}</div>
+        <p>${overflow?'The value exceeds floating-point display range; use the exact expression above.':`Complex value ≈ <strong>${ipComplexText(report.value)}</strong>${underflow?' (numeric underflow; the exact result above is nonzero)':''}`}</p>`+normHTML;
+      if(report.normalized) {
+        html+=`<p>⟨2|O|1⟩ / √(⟨2|2⟩ ⟨1|1⟩): numerator = ${rEscape(report.unnormalizedExactSum.text)}; denominator = ${ipExactHTML(report.normalizationDenominator)}.</p>
+          <p class="ip-note">Divides only by the original input norms. O is not normalized: its scalar coefficients and every projector’s 1/2 are retained. With identical inputs this is ⟨ψ|O|ψ⟩ / ⟨ψ|ψ⟩. Saved states and the operator draft are unchanged.</p>`;
+      } else {
+        html+='<p class="ip-note">Evaluates ⟨Ω|O₂† O O₁|Ω⟩. No division by either input norm. Every P± in the states or in O keeps its 1/2; O is not postselected or renormalized. Saved states and the operator draft are unchanged.</p>';
+      }
+      if(report.zeroInput1||report.zeroInput2)html+='<p class="ip-note">An input is the zero vector, so this matrix element is exactly zero.</p>';
+      html+=`<details><summary>Ordered expression and symbolic terms (${report.termCount})</summary>
+        <p>The saved expression is read in mathematical left-to-right order; its rightmost factor acts first. Products are never reordered as if all factors commuted. Sums are combined by linearity, including their complex phases.</p>
+        ${report.normalized?'<p>The terms below form the unnormalized numerator; their exact sum is divided once by the common input-norm denominator shown above.</p>':''}`;
+      if(!report.termCount)html+='<p>The expression cancels exactly to the zero operator before contraction.</p>';
+      for(const [i,term] of report.terms.slice(0,64).entries())html+=`<p>${i+1}. Coefficient <strong>${rEscape(term.coefficient)}</strong> × ⟨2|${rEscape(term.word)}|1⟩, with word matrix element ${ipExactHTML(term.exact)}.</p>`;
+      if(report.terms.length>64)html+=`<p>Showing 64 of ${report.terms.length} terms; all terms are included in the result.</p>`;
+      html+=`<p>O₁, chronological preparation:</p><pre>${ipCircuitText(report.ketEvents)}</pre>
+        <p>O₂†, chronological application after O:</p><pre>${ipCircuitText(ipAdjointEvents(report.braEvents))}</pre></details>`;
+      html+=`<details><summary>Smart expectation method and reference state</summary>
+        <p>Each ordered term uses the existing R-symbol engine: affine-support matching and an exact quadratic phase-polynomial Gauss sum, without enumerating physical state amplitudes. Projector branches stay symbolic, not expanded into separate vectors. Decimal scalars are retained as exact fractions, and term results are summed exactly in Q(√2, i).</p>
+        <p>Y = iXZ, including its global i; Bₜ is the product of the triangle’s three Z operators; Aₛ uses the complete X/CZ star. P†P = P, not I. A zero projector contribution is kept as zero, not treated as an error.</p>
+        <p>Reference: normalized ∏ₛ(I + Aₛ)|0…0⟩, with ${meta.completeStars} independent complete stars on ${meta.physicalQubits} qubits, identical to the R workbench. Products of Bₜ are +1 on this reference; unmatched factors are not automatically set to zero.</p>
+        <p>Up to 256 distinct ordered terms after expanding sums are supported. Larger expressions produce an explicit error, never a partial answer.</p></details>`;
+      if(report.identityReport)html+=`<details><summary>Identity residual certificate</summary>${ipResidualHTML(report.identityReport.residual)}</details>`;
+      if(report.projectors1.length||report.projectors2.length)html+=`<details><summary>Input-state projector weights</summary>${ipProjectorDetails(report.projectors1,'State 1')}${ipProjectorDetails(report.projectors2,'State 2')}</details>`;
+      return html;
+    }
+    function calculateSavedIP(normalized=false) {
+      normalized=normalized===true;
+      const one=savedStates.find(r=>r.id===ipState1Select.value);
+      const two=savedStates.find(r=>r.id===ipState2Select.value);
+      const selected=savedOperators.find(r=>r.id===ipOperatorSelect.value);
+      if(!one||!two){invalidateIPResult();return;}
+      if(ipOperatorSelect.value&&!selected){refreshIPOperatorDropdown();return;}
+      const token=++ipCalculationToken;
+      const events1=deepClone(one.state.operationLog),events2=deepClone(two.state.operationLog);
+      const record=selected?deepClone(selected):null,name1=one.name,name2=two.name;
+      setIPCalculationButtons(true,normalized?'normalized':'raw');
+      ipResultDiv.setAttribute('aria-busy','true');
+      ipResultDiv.textContent=normalized?'Contracting ⟨2|O|1⟩ and computing the original input-norm denominator…':'Contracting ⟨2|O|1⟩ with exact phases and unnormalized projector weights…';
+      let steps=null;
+      // Yield between ordered terms so selection changes can cancel old work.
+      // Only copied records and temporary symbolic states are touched.
+      function batch() {
+        if(token!==ipCalculationToken){steps?.return();return;}
+        try {
+          if(!ipExactEngine)ipExactEngine=new RSymbolicEngine(siteData,starData,triangleData);
+          if(!steps)steps=ipMatrixElementSteps(ipExactEngine,events1,events2,record);
+          const start=performance.now();
+          for(;;) {
+            const next=steps.next();
+            if(next.done) {
+              if(token!==ipCalculationToken)return;
+              ipLastReport=normalized?normalizeMatrixElementReport(next.value):next.value;
+              ipResultDiv.innerHTML=ipMatrixReportHTML(ipLastReport,name1,name2);
+              setIPCalculationButtons(false);
+              ipResultDiv.removeAttribute('aria-busy');requestAnimationFrame(rResize);return;
+            }
+            ipResultDiv.textContent=`Contracting ordered terms: ${next.value.completed} / ${next.value.total}…`;
+            if(performance.now()-start>20){setTimeout(batch,0);return;}
+          }
+        } catch(error) {
+          if(token!==ipCalculationToken)return;
+          steps?.return();ipLastReport=null;
+          ipResultDiv.innerHTML=`<p class="ip-error">Matrix element could not be evaluated: ${rEscape(error.message)}</p>`;
+          setIPCalculationButtons(false);
+          ipResultDiv.removeAttribute('aria-busy');requestAnimationFrame(rResize);
+        }
+      }
+      setTimeout(batch,20);
+    }
+    ipOperatorSelect.addEventListener('change',invalidateIPResult);
+    ipState1Select.addEventListener('change',invalidateIPResult);
+    ipState2Select.addEventListener('change',invalidateIPResult);
+    ipCalculateBtn.addEventListener('click',()=>calculateSavedIP(false));
+    ipNormalizedBtn.addEventListener('click',()=>calculateSavedIP(true));
+    ipResultDiv.addEventListener('toggle',()=>requestAnimationFrame(rResize),true);
+
+    playgroundTabBtn.addEventListener('click',()=>changeWorkspaceTab('playground'));
+    calculationTabBtn.addEventListener('click',()=>changeWorkspaceTab('calculation'));
+    calculationSelect.addEventListener('change',()=>{
+      selectedSavedId=calculationSelect.value||null;
+      operatorPendingCZ=null;
+      renderSavedCalculation();
+    });
+    saveStateBtn.addEventListener('click',saveNamedState);
+    playgroundStateSelect.addEventListener('change', handlePlaygroundStateSelectionChange);
+    stateNameInput.addEventListener('keydown',ev=>{
+      if(ev.key==='Enter'){ev.preventDefault();saveNamedState();}
+    });
+    exportStatesBtn.addEventListener('click',exportSavedStates);
+    importStatesBtn.addEventListener('click',()=>importStatesFile.click());
+    document.getElementById('calculation-import-btn').addEventListener('click',()=>importStatesFile.click());
+    document.getElementById('calculation-export-btn').addEventListener('click',exportSavedStates);
+    importStatesFile.addEventListener('change',()=>importSavedStatesFile(importStatesFile.files?.[0]));
+    restoreSavedLibrary();
+    blankPlaygroundState = deepClone(snapshot());
+    markPlaygroundBaseline();
+    updateSavedStateDropdown();
+    updatePlaygroundStateDropdown();
 
     function handleSave() {
       const now = new Date();
@@ -3470,6 +5742,9 @@ def build_interactive_lattice_html(lattice) -> str:
         handleAnyonQubit(siteId);
         return;
       }
+      // P+ and P- act on complete star polygons, not individual qubits.
+      // They are handled by the star-selection hit test below.
+      if (isProjectorMode()) return;
       if (currentMode === "R") {
         handleR(siteId);
       } else if (currentMode === "Z") {
@@ -3498,15 +5773,30 @@ def build_interactive_lattice_html(lattice) -> str:
 
         // Ordinary tools exit Anyon mode, without changing any Z, X, or
         // automatically generated CZ gates already placed by the guide.
+        let finishNote="";
+        if (anyonKind==="s1" || anyonKind==="s2") {
+          const finished=finishSString();
+          if (!finished.ok) {setStatus(finished.message);return;}
+          finishNote=finished.message;
+        }
         if (anyonKind) {
           clearAnyonGuidance();
         }
         currentMode = btn.dataset.mode;
+        if (isProjectorMode()) {
+          expectationMode = null;
+          inspectedObject = null;
+          updateExpectationButtons();
+        }
 
         updateActiveModeButtons();
         render();
 
-        if (currentMode === "CZ") {
+        if (isProjectorMode()) {
+          setStatus(currentMode === "P_PLUS"
+            ? "Pₛ⁺=(I+Aₛ)/2: click inside a complete hexagonal star to postselect Aₛ=+1."
+            : "Pₛ⁻=(I−Aₛ)/2: click inside a complete hexagonal star to postselect Aₛ=−1.");
+        } else if (currentMode === "CZ") {
           setStatus(
             "Mode: CZ. Click two qubits to connect them."
           );
@@ -3517,8 +5807,20 @@ def build_interactive_lattice_html(lattice) -> str:
         } else {
           setStatus(`Mode: ${currentMode}`);
         }
+        if (finishNote) setStatus(finishNote + " " + statusDiv.textContent);
       });
     }
+
+    // Explicitly finish s1/s2 without selecting a different tool.
+    finishSBtn.addEventListener("click", () => {
+      const finished=finishSString();
+      if (!finished.ok) {setStatus(finished.message);return;}
+      clearAnyonGuidance();
+      currentMode="Z";
+      updateActiveModeButtons();
+      render();
+      setStatus(finished.message);
+    });
     
     // Visibility controls only affect drawing.
     // Operators remain active and continue to appear in the tracked table.
@@ -3534,6 +5836,8 @@ def build_interactive_lattice_html(lattice) -> str:
 
         if (key === "CZ") {
           setStatus(`CZ connections and labels are now ${stateText}.`);
+        } else if (key === "P") {
+          setStatus(`Postselected star projector marks are now ${stateText}.`);
         } else {
           setStatus(`${key} labels are now ${stateText}.`);
         }
@@ -3583,6 +5887,11 @@ def build_interactive_lattice_html(lattice) -> str:
           inspectedObject=null;
         }
         if (zoomMode && expectationMode) setZoomMode(false);
+        if (expectationMode && isProjectorMode()) {
+          // Expectation inspection and projector placement are mutually exclusive.
+          currentMode = "Z";
+          updateActiveModeButtons();
+        }
         updateExpectationButtons();
         render();
         setStatus(expectationMode
@@ -3593,7 +5902,7 @@ def build_interactive_lattice_html(lattice) -> str:
 
     // Unlike Plotly point-click, this also catches empty polygon interiors.
     plotDiv.addEventListener("click", (evt) => {
-      if (!expectationMode || zoomMode) return;
+      if ((!expectationMode && !isProjectorMode()) || zoomMode) return;
       const drag=plotDiv.querySelector(".nsewdrag");
       const fl=plotDiv._fullLayout;
       if (!drag || !fl || !fl.xaxis || !fl.yaxis) return;
@@ -3603,7 +5912,8 @@ def build_interactive_lattice_html(lattice) -> str:
       const xr=fl.xaxis.range,yr=fl.yaxis.range;
       const x=xr[0]+px/rect.width*(xr[1]-xr[0]);
       const y=yr[1]-py/rect.height*(yr[1]-yr[0]);
-      selectExpectationPoint(x,y);
+      if (isProjectorMode()) selectProjectorPoint(x,y);
+      else selectExpectationPoint(x,y);
     });
 
     zoomBtn.addEventListener("click", () => {
@@ -4712,7 +7022,14 @@ def build_interactive_lattice_html(lattice) -> str:
       }
       gate(s,ev){
         s.history.push({...ev,qubits:ev.qubits?.slice()});
-        if(ev.type==='P'){this.project(s,ev.starId,ev);return;}
+        if(ev.type==='P'){
+          if (ev.autoTrivial === true && ev.sign === 1 && !s.dead) {
+            s.outcomes.push(1);
+            s.projectionLog.push({starId:ev.starId,p:1,w:1,log2p:0,
+              automaticTrivial:true,step:ev.step??null,move:ev.move??null});
+          } else this.project(s,ev.starId,ev);
+          return;
+        }
         if(s.dead)return;
         if(ev.type==='A'){this.applyStar(s,ev.starId);return;}
         const ids=(ev.qubits||[]).map(q=>this.index(q));const a=ids[0],b=ids[1];
@@ -4726,7 +7043,7 @@ def build_interactive_lattice_html(lattice) -> str:
         throw Error('Unsupported symbolic gate '+ev.type);
       }
       run(events){
-        const key=JSON.stringify(events.map(e=>[e.type,e.qubits??null,e.starId??null,e.sign??1,e.step??null,e.move??null]));
+        const key=JSON.stringify(events.map(e=>[e.type,e.qubits??null,e.starId??null,e.sign??1,e.step??null,e.move??null,e.autoTrivial===true]));
         const old=this.prefixCache.get(key);if(old)return this.copy(old);
         const s=this.state();for(const ev of events)this.gate(s,ev);
         if(this.prefixCache.size>=24)this.prefixCache.delete(this.prefixCache.keys().next().value);
@@ -4832,6 +7149,9 @@ def build_interactive_lattice_html(lattice) -> str:
       }
 
       const point = eventData.points[0];
+      // Star-selection clicks use the polygon hit test above. Returning here
+      // prevents a center-marker click from also applying a qubit operator.
+      if (isProjectorMode()) return;
       if (expectationMode) {
         if (point.data && point.data.name==="inspect-centers") {
           const id=Number(point.customdata);
